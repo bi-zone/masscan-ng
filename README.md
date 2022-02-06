@@ -590,4 +590,3 @@ github: @sc07kvm
 Original masscan was created by Robert Graham:  
 email: robert_david_graham@yahoo.com  
 twitter: @ErrataRob  
-

@@ -1,0 +1,239 @@
+name: main
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened]
+
+jobs:
+  lint_code_style:
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Install clang
+        run: |
+          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
+          sudo add-apt-repository 'deb http://apt.llvm.org/focal/ llvm-toolchain-focal main'
+          sudo apt-get install clang-format
+      - name: Version clang
+        run: clang-format --version
+      - name: Lint the code
+        run: clang-format --Werror --verbose --dry-run --style=LLVM ./src/*
+  
+  lint_clang:
+    needs: lint_code_style
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Install clang
+        run: |
+          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
+          sudo add-apt-repository 'deb http://apt.llvm.org/focal/ llvm-toolchain-focal main'
+          sudo apt-get install clang clang-tools
+      - name: Version clang
+        run: clang --version
+      - name: Lint the code
+        run: scan-build --status-bugs -v -o ./analysis_result/ make
+      - name: Upload
+        uses: actions/upload-artifact@v2
+        if: failure()
+        with:
+          name: analysis_result_clang
+          path: ./analysis_result/*
+  
+  test_linux:
+    needs: lint_clang
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Install clang
+        run: |
+          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
+          sudo add-apt-repository 'deb http://apt.llvm.org/focal/ llvm-toolchain-focal main'
+          sudo apt-get install clang clang-tools
+      - name: Version clang
+        run: clang --version
+      - name: Build and Test code
+        run: make DEBUG=1 regress
+  
+  sonarcloud:
+    name: SonarCloud
+    needs: test_linux
+    environment: main
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - name: Install LLVM
+        run: sudo apt-get install llvm clang clang-tools
+      - name: Set environment for Sonar Scanner
+        run: |
+          export SONAR_SCANNER_VERSION=4.5.0.2216
+          export SONAR_SCANNER_HOME=$HOME/.sonar/sonar-scanner-$SONAR_SCANNER_VERSION-linux
+          export PATH=$SONAR_SCANNER_HOME/bin:$PATH
+          export SONAR_SCANNER_OPTS="-server"
+          export PATH=$HOME/.sonar/build-wrapper-linux-x86:$PATH
+          echo "PATH=$PATH" >> $GITHUB_ENV
+          echo "SONAR_SCANNER_VERSION=$SONAR_SCANNER_VERSION" >> $GITHUB_ENV
+          echo "SONAR_SCANNER_HOME=$SONAR_SCANNER_HOME" >> $GITHUB_ENV
+          echo "SONAR_SCANNER_OPTS=$SONAR_SCANNER_OPTS" >> $GITHUB_ENV
+      - name: Install Sonar Scanner
+        run: |
+          curl --create-dirs -sSLo $HOME/.sonar/sonar-scanner.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-$SONAR_SCANNER_VERSION-linux.zip
+          unzip -o $HOME/.sonar/sonar-scanner.zip -d $HOME/.sonar/
+          curl --create-dirs -sSLo $HOME/.sonar/build-wrapper-linux-x86.zip https://sonarcloud.io/static/cpp/build-wrapper-linux-x86.zip
+          unzip -o $HOME/.sonar/build-wrapper-linux-x86.zip -d $HOME/.sonar/
+      - name: Restore Sonar Analysis
+        id: cache-sonar-analysis
+        uses: actions/cache@v2
+        with:
+          path: $HOME/.sonarcache
+          key: ${{ runner.os }}-sonar-analysis-${{ github.ref }}
+      - name: Execute the Build Wrapper
+        run: build-wrapper-linux-x86-64 --out-dir bw-output make COVERAGE=1
+      - name: Coverage
+        run: |
+          LLVM_PROFILE_FILE="masscan-ng.profraw" ./bin/masscan-ng --selftest
+          llvm-profdata merge -sparse masscan-ng.profraw -o masscan-ng.profdata
+          llvm-cov show ./bin/masscan-ng -instr-profile=masscan-ng.profdata > coverage.txt
+      - name: Execute the SonarScanner
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: sonar-scanner
+          -Dsonar.organization=bi-zone
+          -Dsonar.projectKey=bi-zone_masscan-ng
+          -Dsonar.sources=.
+          -Dsonar.cfamily.build-wrapper-output=bw-output
+          -Dsonar.host.url=https://sonarcloud.io
+          -Dsonar.cfamily.threads=2
+          -Dsonar.cfamily.cache.path=$HOME/.sonarcache
+          -Dsonar.cfamily.cache.enabled=true
+          -Dsonar.cfamily.llvm-cov.reportPath=coverage.txt
+  
+  codeql:
+    name: CodeQL
+    needs: test_linux
+    environment: main
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v1
+        with:
+          languages: cpp
+      - name: Build code
+        run: make
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v1
+  
+  build_mac:
+    needs: [lint_code_style, lint_clang, test_linux]
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+      - name: Build code
+        run: make
+      - name: Selftest
+        run:
+          ./bin/masscan-ng --selftest
+      - name: Upload
+        uses: actions/upload-artifact@v2
+        with:
+          name: masscan-ng_mac
+          path: ./bin/masscan-ng
+  
+  build_linux:
+    needs: [lint_code_style, lint_clang, test_linux]
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Build code
+        run: make
+      - name: Selftest
+        run:
+          ./bin/masscan-ng --selftest
+      - name: Upload
+        uses: actions/upload-artifact@v2
+        with:
+          name: masscan-ng
+          path: ./bin/masscan-ng
+  
+  build_windows:
+    needs: [lint_code_style, lint_clang, test_linux]
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        configuration: ["Release"]
+        platform: ["x64"]
+        include:
+          - platform: x64
+            arch: x64
+          # - platform: Win32
+          #   arch: x86
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      # This not work for nmake
+      # - name: Add msbuild to PATH
+      #   uses: microsoft/setup-msbuild@v1
+      - name: Configure MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.arch }}
+      - name: Cache Externals
+        id: cache-externals
+        uses: actions/cache@v2
+        with:
+          path: .\externals\${{ matrix.platform }}\Release
+          key: ${{ runner.os }}-externals-${{ matrix.platform }}-release
+      - name: Install OpenSSL
+        if: steps.cache-externals.outputs.cache-hit != 'true'
+        run: | 
+          curl -fsSL https://github.com/openssl/openssl/archive/OpenSSL_1_1_1i.zip -o OpenSSL_1_1_1i.zip
+          7z x OpenSSL_1_1_1i.zip
+          mkdir .\openssl-OpenSSL_1_1_1i\${{ matrix.platform }}\Release
+          cd .\openssl-OpenSSL_1_1_1i\${{ matrix.platform }}\Release
+          perl ..\..\Configure VC-WIN64A-masm
+          nmake
+          xcopy ..\..\include\openssl ..\..\..\externals\${{ matrix.platform }}\Release\include\openssl\
+          xcopy include\openssl ..\..\..\externals\${{ matrix.platform }}\Release\include\openssl\ /y
+          xcopy libssl.lib ..\..\..\externals\${{ matrix.platform }}\Release\shared_lib\
+          xcopy libcrypto.lib ..\..\..\externals\${{ matrix.platform }}\Release\shared_lib\
+          xcopy libssl-1_1.dll ..\..\..\externals\${{ matrix.platform }}\Release\bin\
+          xcopy libcrypto-1_1.dll ..\..\..\externals\${{ matrix.platform }}\Release\bin\
+      - name: Install PCRE
+        if: steps.cache-externals.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL https://altushost-swe.dl.sourceforge.net/project/pcre/pcre/8.45/pcre-8.45.zip -o pcre-8.45.zip
+          7z x pcre-8.45.zip
+          cd pcre-8.45
+          cmake . -A ${{ matrix.platform }} -DBUILD_SHARED_LIBS=ON
+          msbuild -m PCRE.sln /p:Configuration=Release /p:Platform=${{ matrix.platform }}
+          xcopy pcre.h ..\externals\${{ matrix.platform }}\Release\include\
+          xcopy .\Release\pcre.lib ..\externals\${{ matrix.platform }}\Release\shared_lib\
+          xcopy .\Release\pcre.dll ..\externals\${{ matrix.platform }}\Release\bin\
+      - name: Build code
+        run: msbuild .\vs17\masscan-ng.sln /property:Configuration=${{ matrix.configuration }} /property:Platform=${{ matrix.platform }} /m
+      - name: Selftest
+        run: |
+          xcopy .\externals\${{ matrix.platform }}\Release\bin\libssl-1_1.dll .\bin\${{ matrix.platform }}\${{ matrix.configuration }}\
+          xcopy .\externals\${{ matrix.platform }}\Release\bin\libcrypto-1_1.dll .\bin\${{ matrix.platform }}\${{ matrix.configuration }}\
+          xcopy .\externals\${{ matrix.platform }}\Release\bin\pcre.dll .\bin\${{ matrix.platform }}\${{ matrix.configuration }}\
+          .\bin\${{ matrix.platform }}\${{ matrix.configuration }}\masscan-ng.exe --selftest
+      - name: Upload
+        uses: actions/upload-artifact@v2
+        with:
+          name: masscan-ng_win
+          path: |
+            .\bin\${{ matrix.platform }}\${{ matrix.configuration }}\
