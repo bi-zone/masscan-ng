@@ -18,8 +18,8 @@ jobs:
           wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
           sudo add-apt-repository 'deb http://apt.llvm.org/focal/ llvm-toolchain-focal main'
           sudo apt-get install clang-format
-      - name: Version clang
-        run: clang-format --version
+          export CC=clang
+          clang --version
       - name: Lint the code
         run: clang-format --Werror --verbose --dry-run --style=LLVM ./src/*
   
@@ -34,8 +34,8 @@ jobs:
           wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
           sudo add-apt-repository 'deb http://apt.llvm.org/focal/ llvm-toolchain-focal main'
           sudo apt-get install clang clang-tools
-      - name: Version clang
-        run: clang --version
+          export CC=clang
+          clang --version
       - name: Lint the code
         run: scan-build --status-bugs -v -o ./analysis_result/ make
       - name: Upload
@@ -56,8 +56,8 @@ jobs:
           wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
           sudo add-apt-repository 'deb http://apt.llvm.org/focal/ llvm-toolchain-focal main'
           sudo apt-get install clang clang-tools
-      - name: Version clang
-        run: clang --version
+          export CC=clang
+          clang --version
       - name: Build and Test code
         run: make DEBUG=1 regress
   
@@ -72,7 +72,10 @@ jobs:
         with:
           fetch-depth: 0
       - name: Install LLVM
-        run: sudo apt-get install llvm clang clang-tools
+        run: |
+          sudo apt-get install llvm clang clang-tools
+          export CC=clang
+          clang --version
       - name: Set environment for Sonar Scanner
         run: |
           export SONAR_SCANNER_VERSION=4.5.0.2216
@@ -158,6 +161,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
+      - name: Install clang
+        run: |
+          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
+          sudo add-apt-repository 'deb http://apt.llvm.org/focal/ llvm-toolchain-focal main'
+          sudo apt-get install clang clang-tools
+          export CC=clang
+          clang --version
       - name: Build code
         run: make
       - name: Selftest
