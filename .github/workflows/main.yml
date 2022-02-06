@@ -18,10 +18,10 @@ jobs:
           wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
           sudo add-apt-repository 'deb http://apt.llvm.org/focal/ llvm-toolchain-focal main'
           sudo apt-get install clang-format
-          export CC=clang
-          clang --version
       - name: Lint the code
-        run: clang-format --Werror --verbose --dry-run --style=LLVM ./src/*
+        run: |
+          clang-format --version
+          clang-format --Werror --verbose --dry-run --style=LLVM ./src/*
   
   lint_clang:
     needs: lint_code_style
@@ -34,10 +34,11 @@ jobs:
           wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
           sudo add-apt-repository 'deb http://apt.llvm.org/focal/ llvm-toolchain-focal main'
           sudo apt-get install clang clang-tools
+      - name: Lint the code
+        run: |
           export CC=clang
           clang --version
-      - name: Lint the code
-        run: scan-build --status-bugs -v -o ./analysis_result/ make
+          scan-build --status-bugs -v -o ./analysis_result/ make
       - name: Upload
         uses: actions/upload-artifact@v2
         if: failure()
@@ -56,10 +57,11 @@ jobs:
           wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
           sudo add-apt-repository 'deb http://apt.llvm.org/focal/ llvm-toolchain-focal main'
           sudo apt-get install clang clang-tools
+      - name: Build and Test code
+        run: |
           export CC=clang
           clang --version
-      - name: Build and Test code
-        run: make DEBUG=1 regress
+          make DEBUG=1 regress
   
   sonarcloud:
     name: SonarCloud
@@ -134,7 +136,10 @@ jobs:
         with:
           languages: cpp
       - name: Build code
-        run: make
+        run: |
+          export CC=clang
+          clang --version
+          make
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v1
   
@@ -145,7 +150,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v1
       - name: Build code
-        run: make
+        run: |
+          export CC=clang
+          clang --version
+          make
       - name: Selftest
         run:
           ./bin/masscan-ng --selftest
@@ -166,10 +174,11 @@ jobs:
           wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
           sudo add-apt-repository 'deb http://apt.llvm.org/focal/ llvm-toolchain-focal main'
           sudo apt-get install clang clang-tools
+      - name: Build code
+        run: |
           export CC=clang
           clang --version
-      - name: Build code
-        run: make
+          make
       - name: Selftest
         run:
           ./bin/masscan-ng --selftest
