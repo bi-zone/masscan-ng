@@ -1,3 +1,7 @@
+![main](https://github.com/bi-zone/masscan-ng/workflows/main/badge.svg)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=bi-zone_masscan-ng&metric=coverage)](https://sonarcloud.io/dashboard?id=bi-zone_masscan-ng)
+[![Bugs](https://sonarcloud.io/api/project_badges/measure?project=bi-zone_masscan-ng&metric=bugs)](https://sonarcloud.io/dashboard?id=bi-zone_masscan-ng)
+ 
 # MASSCAN-NG: Mass IP port scanner
 
 This is an Internet-scale port scanner. It can scan the entire Internet
