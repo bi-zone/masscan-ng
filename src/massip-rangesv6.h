@@ -26,7 +26,7 @@ struct Range6List {
   struct Range6 *list;
   size_t count;
   size_t max;
-  size_t *picker;
+  uint64_t *picker;
   unsigned is_sorted : 1;
 };
 

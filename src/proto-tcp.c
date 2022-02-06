@@ -103,7 +103,7 @@ void tcpcon_timeouts(struct TCP_ConnectionTable *tcpcon, unsigned secs,
     if (tcb->timeout->prev == NULL && tcb->is_active) {
       timeouts_add(tcpcon->timeouts, tcb->timeout,
                    offsetof(struct TCP_Control_Block, timeout),
-                   TICKS_FROM_TV((size_t)secs + 2, usecs));
+                   TICKS_FROM_TV((uint64_t)secs + 2, usecs));
     }
   }
 }
@@ -168,7 +168,7 @@ void tcpcon_set_parameter(struct TCP_ConnectionTable *tcpcon, const char *name,
 
   if (name_equals(name, "http-payload")) {
     char lenstr[64];
-    sprintf_s(lenstr, sizeof(lenstr), "%" PRIu64, value_length);
+    sprintf_s(lenstr, sizeof(lenstr), "%" PRIuPTR, value_length);
 
     banner_http.hello_length = http_change_requestline(
         (unsigned char **)&banner_http.hello, banner_http.hello_length,

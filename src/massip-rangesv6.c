@@ -493,7 +493,7 @@ ipv6address_t *range6list_pick(ipv6address_t *result,
   size_t min = 0;
   size_t max = targets->count;
   size_t mid;
-  const size_t *picker = targets->picker;
+  const uint64_t *picker = targets->picker;
 
   if (picker == NULL) {
     LOG(LEVEL_ERROR, "[-] ipv6 picker is null\n");
@@ -528,7 +528,7 @@ ipv6address_t *range6list_pick(ipv6address_t *result,
  ***************************************************************************/
 void range6list_optimize(struct Range6List *targets) {
 
-  size_t *picker;
+  uint64_t *picker;
   size_t i;
   ipv6address_t total = {0, 0};
 
