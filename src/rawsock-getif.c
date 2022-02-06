@@ -357,10 +357,11 @@ int rawsock_get_default_interface(char *ifname, size_t sizeof_ifname) {
 #endif
 
 #if defined(WIN32)
-#include "massip-parse.h"
-#include <iphlpapi.h>
+// clang-format off
 #include <winsock2.h>
-
+#include <iphlpapi.h>
+// clang-format on
+#include "massip-parse.h"
 #ifdef _MSC_VER
 #pragma comment(lib, "IPHLPAPI.lib")
 #endif

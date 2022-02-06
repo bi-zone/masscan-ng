@@ -14,8 +14,8 @@ static void binary_out_open(struct Output *out) {
   size_t bytes_written;
 
   memset(firstrecord, 0, sizeof(firstrecord));
-  sprintf_s(firstrecord, sizeof(firstrecord), "masscan/1.1\ns:%" PRIu64 "\n",
-            out->when_scan_started);
+  sprintf_s(firstrecord, sizeof(firstrecord), "masscan/1.1\ns:%" PRId64 "\n",
+            (int64_t)out->when_scan_started);
   bytes_written = fwrite(firstrecord, 1, sizeof(firstrecord), out->fp);
   if (bytes_written != sizeof(firstrecord)) {
     LOG(LEVEL_ERROR, "output: %s\n", strerror(errno));

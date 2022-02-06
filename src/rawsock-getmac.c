@@ -73,8 +73,10 @@ end:
 /*****************************************************************************
  *****************************************************************************/
 #elif defined(WIN32)
-#include <iphlpapi.h>
+// clang-format off
 #include <winsock2.h>
+#include <iphlpapi.h>
+// clang-format on
 #ifdef _MSC_VER
 #pragma comment(lib, "IPHLPAPI.lib")
 #endif

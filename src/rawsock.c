@@ -25,8 +25,10 @@
 static int is_pcap_file = 0;
 
 #ifdef WIN32
-#include <iphlpapi.h>
+// clang-format off
 #include <winsock.h>
+#include <iphlpapi.h>
+// clang-format on
 
 #if defined(_MSC_VER)
 #pragma comment(lib, "IPHLPAPI.lib")

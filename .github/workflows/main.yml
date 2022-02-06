@@ -76,8 +76,6 @@ jobs:
       - name: Install LLVM
         run: |
           sudo apt-get install llvm clang clang-tools
-          export CC=clang
-          clang --version
       - name: Set environment for Sonar Scanner
         run: |
           export SONAR_SCANNER_VERSION=4.5.0.2216
@@ -102,7 +100,10 @@ jobs:
           path: $HOME/.sonarcache
           key: ${{ runner.os }}-sonar-analysis-${{ github.ref }}
       - name: Execute the Build Wrapper
-        run: build-wrapper-linux-x86-64 --out-dir bw-output make COVERAGE=1
+        run: |
+          export CC=clang
+          clang --version
+          build-wrapper-linux-x86-64 --out-dir bw-output make COVERAGE=1
       - name: Coverage
         run: |
           LLVM_PROFILE_FILE="masscan-ng.profraw" ./bin/masscan-ng --selftest

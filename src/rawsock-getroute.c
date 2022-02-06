@@ -381,8 +381,10 @@ int rawsock_get_default_gateway(const char *ifname, ipv4address_t *ipv4) {
 #endif
 
 #if defined(WIN32)
-#include <iphlpapi.h>
+// clang-format off
 #include <winsock2.h>
+#include <iphlpapi.h>
+// clang-format on
 #ifdef _MSC_VER
 #pragma comment(lib, "IPHLPAPI.lib")
 #endif

@@ -79,10 +79,12 @@ ipv6address_t *rawsock_get_adapter_ipv6(ipv6address_t *result,
 /*****************************************************************************
  *****************************************************************************/
 #elif defined(WIN32)
+// clang-format off
 #define WIN32_LEAN_AND_MEAN
+#include <winsock2.h>
 #include <WS2tcpip.h>
 #include <iphlpapi.h>
-#include <winsock2.h>
+// clang-format on
 #ifdef _MSC_VER
 #pragma comment(lib, "IPHLPAPI.lib")
 #endif
