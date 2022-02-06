@@ -15,9 +15,9 @@ static void xml_out_open(struct Output *out) {
             out->xml.stylesheet);
   }
   fprintf(out->fp,
-          "<nmaprun scanner=\"" MASSCAN_NAME "\" start=\"%" PRIu64 "\" "
+          "<nmaprun scanner=\"" MASSCAN_NAME "\" start=\"%" PRId64 "\" "
           "version=\"" MASSCAN_VERSION "\"  xmloutputversion=\"1.0\">\r\n",
-          time(0));
+          (int64_t)time(0));
   fprintf(out->fp, "<scaninfo type=\"%s\" protocol=\"%s\" />\r\n", "syn",
           "tcp");
 }
