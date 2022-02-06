@@ -239,7 +239,7 @@ ipv6address_t *rawsock_get_adapter_ipv6(ipv6address_t *result,
       continue;
 
     ipv6address_from_bytes(
-        *addr, (const unsigned char *)&((struct sockaddr_in6 *)ifa->ifa_addr)
+        &addr, (const unsigned char *)&((struct sockaddr_in6 *)ifa->ifa_addr)
                    ->sin6_addr);
 
     if (addr.hi >> 56ULL >= 0xFC)
