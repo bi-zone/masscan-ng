@@ -39,14 +39,14 @@ static void xml_out_close(struct Output *out) {
 
   fprintf(out->fp,
           "<runstats>\r\n"
-          "<finished time=\"%" PRIu64 "\" timestr=\"%s\" elapsed=\"%" PRIu64
+          "<finished time=\"%" PRId64 "\" timestr=\"%s\" elapsed=\"%" PRId64
           "\" />\r\n"
           "<hosts up=\"%" PRIu64 "\" down=\"%" PRIu64 "\" total=\"%" PRIu64
           "\" />\r\n"
           "</runstats>\r\n"
           "</nmaprun>\r\n",
-          now /* time */, buffer /* timestr */,
-          (now - out->rotate.last) /* elapsed */, out->counts.tcp.open,
+          (int64_t)now /* time */, buffer /* timestr */,
+          (int64_t)(now - out->rotate.last) /* elapsed */, out->counts.tcp.open,
           out->counts.tcp.closed,
           out->counts.tcp.open + out->counts.tcp.closed);
 }
