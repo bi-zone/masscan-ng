@@ -18,7 +18,7 @@ static void json_out_close(struct Output *out) {
 }
 
 //{ ip: "124.53.139.201", ports: [ {port: 443, proto: "tcp", status: "open",
-//reason: "syn-ack", ttl: 48} ] }
+// reason: "syn-ack", ttl: 48} ] }
 /****************************************************************************
  ****************************************************************************/
 static void json_out_status(struct Output *out, time_t timestamp,

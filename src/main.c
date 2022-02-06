@@ -30,8 +30,8 @@
 #pragma comment(lib, "Ws2_32.lib")
 #endif
 #else
-#include <sys/socket.h>
 #include <netinet/in.h>
+#include <sys/socket.h>
 #include <unistd.h>
 #endif
 

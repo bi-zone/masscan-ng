@@ -60,8 +60,8 @@ ipv4address_t *rawsock_get_adapter_ip(ipv4address_t *result,
 /*****************************************************************************
  *****************************************************************************/
 #elif defined(WIN32)
-#include <winsock2.h>
 #include <iphlpapi.h>
+#include <winsock2.h>
 #ifdef _MSC_VER
 #pragma comment(lib, "IPHLPAPI.lib")
 #endif

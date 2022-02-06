@@ -75,9 +75,9 @@ struct SmbParams params[] = {
     {0x72, 2, 1, IT_uint8, offsetof(struct Smb72_Negotiate, SecurityMode)},
     //{0x72,  3,   2, IT_uint16, offsetof(struct Smb72_Negotiate, MaxMpxCount)},
     //{0x72,  5,   2, IT_uint16, offsetof(struct Smb72_Negotiate,
-    //MaxNumberVcs)}, {0x72,  7,   4, IT_uint32, offsetof(struct
-    //Smb72_Negotiate, MaxBufferSize)}, {0x72, 11,   4, IT_uint32,
-    //offsetof(struct Smb72_Negotiate, MaxRawSize)},
+    // MaxNumberVcs)}, {0x72,  7,   4, IT_uint32, offsetof(struct
+    // Smb72_Negotiate, MaxBufferSize)}, {0x72, 11,   4, IT_uint32,
+    // offsetof(struct Smb72_Negotiate, MaxRawSize)},
     {0x72, 15, 4, IT_uint32, offsetof(struct Smb72_Negotiate, SessionKey)},
     {0x72, 19, 4, IT_uint32, offsetof(struct Smb72_Negotiate, Capabilities)},
     {0x72, 23, 8, IT_uint64, offsetof(struct Smb72_Negotiate, SystemTime)},
