@@ -4,6 +4,7 @@
 #include <time.h>
 struct PreprocessedInfo;
 struct Output;
+struct Banner1;
 
 unsigned handle_dns(struct Banner1 *banner1, struct Output *out,
                     time_t timestamp, const unsigned char *px, size_t length,

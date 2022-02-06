@@ -1,5 +1,8 @@
 #ifndef IN_BINARY_H
 #define IN_BINARY_H
+
+#include <stddef.h>
+
 struct Masscan;
 
 /* Read that output of previous scans that were saved in the binary format
