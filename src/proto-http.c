@@ -1,0 +1,1031 @@
+#include "proto-http.h"
+#include "logger.h"
+#include "masscan-app.h"
+#include "masscan-version.h"
+#include "proto-banner1.h"
+#include "proto-interactive.h"
+#include "proto-tcp.h"
+#include "smack.h"
+#include "string_s.h"
+#include "util-cross.h"
+#include "util-malloc.h"
+#include "util-test.h"
+
+#include <assert.h>
+#include <ctype.h>
+
+enum {
+  HTTPFIELD_INCOMPLETE,
+  HTTPFIELD_SERVER,
+  HTTPFIELD_CONTENT_LENGTH,
+  HTTPFIELD_CONTENT_TYPE,
+  HTTPFIELD_VIA,
+  HTTPFIELD_LOCATION,
+  HTTPFIELD_UNKNOWN,
+  HTTPFIELD_NEWLINE,
+};
+
+static struct Patterns http_fields[] = {
+    {"Server:", 7, NOT_HAVE_OFFSET, HTTPFIELD_SERVER, SMACK_ANCHOR_BEGIN},
+    //{"Content-Length:", 15, NOT_HAVE_OFFSET, HTTPFIELD_CONTENT_LENGTH,
+    //SMACK_ANCHOR_BEGIN},
+    //{"Content-Type:",   13, NOT_HAVE_OFFSET, HTTPFIELD_CONTENT_TYPE,
+    //SMACK_ANCHOR_BEGIN},
+    {"Via:", 4, NOT_HAVE_OFFSET, HTTPFIELD_VIA, SMACK_ANCHOR_BEGIN},
+    {"Location:", 9, NOT_HAVE_OFFSET, HTTPFIELD_LOCATION, SMACK_ANCHOR_BEGIN},
+    {":", 1, NOT_HAVE_OFFSET, HTTPFIELD_UNKNOWN, 0},
+    {"\n", 1, NOT_HAVE_OFFSET, HTTPFIELD_NEWLINE, 0},
+    {0, 0, 0, 0, 0}};
+enum {
+  HTML_INCOMPLETE,
+  HTML_TITLE,
+  HTML_UNKNOWN,
+};
+static struct Patterns html_fields[] = {
+    {"<TiTle", 6, NOT_HAVE_OFFSET, HTML_TITLE, 0}, {NULL, 0, 0, 0, 0}};
+
+extern struct ProtocolParserStream banner_http;
+
+/* We might have an incomplete HTTP request header. Thus, as we insert
+ * fields into it, we'll add missing components onto the end. */
+static size_t _http_append(unsigned char **inout_header, size_t length1,
+                           size_t length2, const char *str) {
+  size_t str_length = strlen(str);
+
+  *inout_header = REALLOC(*inout_header, length1 + length2 + str_length + 1);
+  memcpy(*inout_header + length1, str, str_length + 1);
+
+  return str_length;
+}
+
+enum what_skip_t { spaces, notspaces, end_of_line, end_of_field };
+size_t _skip(enum what_skip_t what, const unsigned char *hdr, size_t offset,
+             size_t header_length) {
+  switch (what) {
+  case notspaces:
+    while (offset < header_length && !isspace(hdr[offset] & 0xFF))
+      offset++;
+    break;
+  case spaces:
+    while (offset < header_length && hdr[offset] != '\n' &&
+           isspace(hdr[offset] & 0xFF))
+      offset++;
+    if (offset < header_length && hdr[offset] == '\n') {
+      while (offset > 0 && hdr[offset - 1] == '\r')
+        offset--;
+    }
+    break;
+  case end_of_field:
+    while (offset < header_length && hdr[offset] != '\n')
+      offset++;
+    if (offset < header_length && hdr[offset] == '\n') {
+      while (offset > 0 && hdr[offset - 1] == '\r')
+        offset--;
+    }
+    break;
+  case end_of_line:
+    while (offset < header_length && hdr[offset] != '\n')
+      offset++;
+    if (offset < header_length && hdr[offset] == '\n')
+      offset++;
+    break;
+  }
+  return offset;
+}
+
+/* Used when editing our HTTP prototype request, it replaces the existing
+ * field (start..end) with the new field. The header is resized and data moved
+ * to accommodate this insertion. */
+static size_t _http_insert(unsigned char **r_hdr, size_t start, size_t end,
+                           size_t header_length, size_t field_length,
+                           const void *field) {
+
+  size_t old_field_length = (end - start);
+  size_t new_header_length = header_length + field_length - old_field_length;
+  unsigned char *hdr = *r_hdr;
+  unsigned char *new_hdr = NULL;
+
+  new_hdr = MALLOC(new_header_length + 1);
+  memmove(&new_hdr[0], &hdr[0], start);
+  memmove(&new_hdr[start], field, field_length);
+  memmove(&new_hdr[start + field_length], &hdr[end], header_length - end + 1);
+  free(hdr);
+  *r_hdr = new_hdr;
+  return new_header_length;
+}
+
+size_t http_change_requestline(unsigned char **hdr, size_t header_length,
+                               const void *field, size_t field_length,
+                               enum http_request_line_t item) {
+
+  size_t offset;
+  size_t start;
+
+  /* If no length given, calculate length */
+  if (field_length == ~(size_t)0) {
+    field_length = strlen((const char *)field);
+  }
+
+  /*  GET /example.html HTTP/1.0
+   * 0111233333333333334
+   * #0 skip leading whitespace
+   * #1 skip past method
+   * #2 skip past space after method
+   * #3 skip past URL field
+   * #4 skip past space after URL
+   * #5 skip past version */
+
+  /* #0 Skip leading whitespace */
+  offset = 0;
+  offset = _skip(spaces, *hdr, offset, header_length);
+
+  /* #1 Method */
+  start = offset;
+  if (offset == header_length)
+    header_length += _http_append(hdr, header_length, field_length, "GET");
+  offset = _skip(notspaces, *hdr, offset, header_length);
+  if (item == http_request_line_method) {
+    return _http_insert(hdr, start, offset, header_length, field_length, field);
+  }
+
+  /* #2 Method space */
+  if (offset == header_length)
+    header_length += _http_append(hdr, header_length, field_length, " ");
+  offset = _skip(spaces, *hdr, offset, header_length);
+
+  /* #3 URL */
+  start = offset;
+  if (offset == header_length)
+    header_length += _http_append(hdr, header_length, field_length, "/");
+  offset = _skip(notspaces, *hdr, offset, header_length);
+  if (item == http_request_line_url) {
+    return _http_insert(hdr, start, offset, header_length, field_length, field);
+  }
+
+  /* #4 Space after URL */
+  if (offset == header_length)
+    header_length += _http_append(hdr, header_length, field_length, " ");
+  offset = _skip(spaces, *hdr, offset, header_length);
+
+  /* #5 version */
+  start = offset;
+  if (offset == header_length)
+    header_length += _http_append(hdr, header_length, field_length, "HTTP/1.0");
+  offset = _skip(notspaces, *hdr, offset, header_length);
+  if (item == http_request_line_version) {
+    return _http_insert(hdr, start, offset, header_length, field_length, field);
+  }
+
+  /* ending line */
+  if (offset == header_length)
+    header_length += _http_append(hdr, header_length, field_length, "\r\n");
+  offset = _skip(spaces, *hdr, offset, header_length);
+  offset = _skip(end_of_line, *hdr, offset, header_length);
+
+  /* now find a blank line */
+  for (;;) {
+    /* make sure there's at least one line left */
+    if (offset == header_length)
+      header_length += _http_append(hdr, header_length, field_length, "\r\n");
+    if (offset + 1 == header_length && (*hdr)[offset] == '\r')
+      header_length += _http_append(hdr, header_length, field_length, "\n");
+
+    start = offset;
+    offset = _skip(end_of_field, *hdr, offset, header_length);
+    if (start == offset) {
+      /* We've reached the end of the header*/
+      offset = _skip(end_of_line, *hdr, offset, header_length);
+      break;
+    }
+
+    if (offset == header_length)
+      header_length += _http_append(hdr, header_length, field_length, "\r\n");
+    if (offset + 1 == header_length && (*hdr)[offset] == '\r')
+      header_length += _http_append(hdr, header_length, field_length, "\n");
+    offset = _skip(end_of_line, *hdr, offset, header_length);
+  }
+
+  start = offset;
+  offset = header_length;
+  if (item == http_request_line_payload) {
+    return _http_insert(hdr, start, offset, header_length, field_length, field);
+  }
+
+  return header_length;
+}
+
+size_t _field_length(const unsigned char *hdr, size_t offset,
+                     size_t hdr_length) {
+
+  size_t original_offset = offset;
+
+  /* Find newline */
+  while (offset < hdr_length && hdr[offset] != '\n')
+    offset++;
+
+  /* Trim trailing whitespace */
+  while (offset > original_offset && isspace(hdr[offset - 1] & 0xFF))
+    offset--;
+
+  return offset - original_offset;
+}
+
+static size_t _next_field(const unsigned char *hdr, size_t offset,
+                          size_t hdr_length) {
+
+  size_t original_offset = offset;
+
+  /* Find newline */
+  while (offset < hdr_length && hdr[offset] != '\n')
+    offset++;
+
+  /* Remove newline too*/
+  if (offset > original_offset && isspace(hdr[offset - 1] & 0xFF))
+    offset++;
+
+  return offset;
+}
+
+static bool _has_field_name(const char *name, size_t name_length,
+                            const unsigned char *hdr, size_t offset,
+                            size_t hdr_length) {
+
+  size_t x;
+  bool found_colon = false;
+
+  /* Trim leading whitespace */
+  while (offset < hdr_length && isspace(hdr[offset] & 0xFF) &&
+         hdr[offset] != '\n') {
+    offset++;
+  }
+
+  /* Make sure there's enough space left */
+  if (hdr_length - offset < name_length)
+    return false;
+
+  /* Make sure there's colon after */
+  for (x = offset + name_length; x < hdr_length; x++) {
+    unsigned char c = hdr[x] & 0xFF;
+    if (isspace(c))
+      continue;
+    else if (c == ':') {
+      found_colon = true;
+      break;
+    } else {
+      /* some unexpected character was found in the name */
+      return false;
+    }
+  }
+  if (!found_colon)
+    return false;
+
+  /* Compare the name (case insensitive) */
+  return memcasecmp(name, hdr + offset, name_length) == 0;
+}
+
+/***************************************************************************
+ ***************************************************************************/
+size_t http_change_field(unsigned char **inout_header, size_t header_length,
+                         const char *name, const unsigned char *value,
+                         size_t value_length, enum http_field_t what) {
+
+  unsigned char *hdr = *inout_header;
+  size_t name_length = strlen(name);
+  size_t offset;
+  size_t next_offset;
+
+  /* If field 'name' ends in a colon, trim that. Also, trim whitespace */
+  while (name_length) {
+    unsigned char c = name[name_length - 1];
+    if (c == ':' || isspace(c & 0xFF))
+      name_length--;
+    else
+      break;
+  }
+
+  /* If length of the fiend value not specified, then assume
+   * nul-terminated string */
+  if (value_length == ~(size_t)0)
+    value_length = strlen((const char *)value);
+
+  /* Find our field */
+  for (offset = _next_field(hdr, 0, header_length); offset < header_length;
+       offset = _next_field(hdr, offset, header_length)) {
+
+    if (_has_field_name(name, name_length, hdr, offset, header_length)) {
+      break;
+    } else if (_field_length(hdr, offset, header_length) == 0) {
+      /* We reached end without finding field, so insert before end
+       * instead of replacing an existing header. */
+      if (what == http_field_remove)
+        return header_length;
+      what = http_field_add;
+      break;
+    }
+  }
+
+  /* Allocate a new header to replace the old one. We'll allocated
+   * more space than we actually need */
+  *inout_header = REALLOC(*inout_header, header_length + name_length + 2 +
+                                             value_length + 2 + 1 + 2);
+  hdr = *inout_header;
+
+  /* If we reached the end without finding proper termination, then add it */
+  if (offset == header_length) {
+    if (offset == 0 || hdr[offset - 1] != '\n') {
+      if (hdr[offset - 1] == '\r')
+        header_length =
+            _http_append(&hdr, header_length, value_length + 2, "\n");
+      else
+        header_length =
+            _http_append(&hdr, header_length, value_length + 2, "\r\n");
+    }
+  }
+
+  /* Make room for the new header */
+  next_offset = _next_field(hdr, offset, header_length);
+  if (value == NULL || what == http_field_remove) {
+    memmove(&hdr[offset + 0], &hdr[next_offset],
+            header_length - next_offset + 1);
+    header_length += 0 - (next_offset - offset);
+    return header_length;
+  } else if (what == http_field_replace) {
+    /* Replace existing field */
+    memmove(&hdr[offset + name_length + 2 + value_length + 2],
+            &hdr[next_offset], header_length - next_offset + 1);
+    header_length +=
+        (name_length + 2 + value_length + 2) - (next_offset - offset);
+  } else {
+    /* Add a new field onto the end */
+    memmove(&hdr[offset + name_length + 2 + value_length + 2], &hdr[offset],
+            header_length - offset + 1);
+    header_length += (name_length + 2 + value_length + 2);
+  }
+  hdr[header_length] = '\0';
+
+  /* Copy the new header */
+  memcpy(&hdr[offset], name, name_length);
+  memcpy(&hdr[offset + name_length], ": ", 2);
+  memcpy(&hdr[offset + name_length + 2], value, value_length);
+  memcpy(&hdr[offset + name_length + 2 + value_length], "\r\n", 2);
+
+  return header_length;
+}
+
+/***************************************************************************
+ ***************************************************************************/
+static const char http_hello[] =
+    "GET / HTTP/1.0\r\n"
+    "User-Agent: " MASSCAN_NAME "/" MASSCAN_VERSION_SHORT " (" MASSCAN_REPO_LINK
+    ")\r\n"
+    "Accept: */*\r\n"
+    //"Connection: Keep-Alive\r\n"
+    //"Content-Length: 0\r\n"
+    "\r\n";
+
+/*****************************************************************************
+ *****************************************************************************/
+void field_name(struct BannerOutput *banout, size_t id,
+                struct Patterns *xhttp_fields) {
+  size_t i;
+  if (id == HTTPFIELD_INCOMPLETE)
+    return;
+  if (id == HTTPFIELD_UNKNOWN)
+    return;
+  if (id == HTTPFIELD_NEWLINE)
+    return;
+  for (i = 0; xhttp_fields[i].pattern; i++) {
+    if (xhttp_fields[i].id == id) {
+      size_t add_len =
+          ((xhttp_fields[i].pattern[0] == '<') ? 1 : 0); /* bah. hack. ugly. */
+      banout_newline(banout, PROTO_HTTP);
+      banout_append(banout, PROTO_HTTP,
+                    (const unsigned char *)xhttp_fields[i].pattern + add_len,
+                    xhttp_fields[i].pattern_length - add_len);
+      return;
+    }
+  }
+}
+
+/*****************************************************************************
+ * Initialize some stuff that's part of the HTTP state-machine-parser.
+ *****************************************************************************/
+static void *http_init(struct Banner1 *b) {
+  unsigned i;
+
+  /* These match HTTP Header-Field: names */
+  b->http_fields = smack_create("http", SMACK_CASE_INSENSITIVE);
+  for (i = 0; http_fields[i].pattern; i++)
+    smack_add_pattern(b->http_fields, http_fields[i].pattern,
+                      http_fields[i].pattern_length, http_fields[i].id,
+                      http_fields[i].is_anchored);
+  smack_compile(b->http_fields);
+
+  /* These match HTML <tag names */
+  b->html_fields = smack_create("html", SMACK_CASE_INSENSITIVE);
+  for (i = 0; html_fields[i].pattern; i++)
+    smack_add_pattern(b->html_fields, html_fields[i].pattern,
+                      html_fields[i].pattern_length, html_fields[i].id,
+                      html_fields[i].is_anchored);
+  smack_compile(b->html_fields);
+
+  if (banner_http.hello == NULL || banner_http.hello == http_hello) {
+    banner_http.hello = MALLOC(banner_http.hello_length + 1);
+    memcpy((char *)banner_http.hello, http_hello, banner_http.hello_length + 1);
+  }
+
+  return b->http_fields;
+}
+
+void static http_cleanup(struct Banner1 *b) {
+
+  if (banner_http.hello != http_hello && banner_http.hello != NULL) {
+    free((void *)banner_http.hello);
+  }
+  banner_http.hello = NULL;
+  banner_http.hello_length = 0;
+  if (b->html_fields != NULL) {
+    smack_destroy(b->html_fields);
+    b->html_fields = NULL;
+  }
+  if (b->http_fields != NULL) {
+    smack_destroy(b->http_fields);
+    b->http_fields = NULL;
+  }
+}
+
+/***************************************************************************
+ * BIZARRE CODE ALERT!
+ *
+ * This uses a "byte-by-byte state-machine" to parse the response HTTP
+ * header. This is standard practice for high-performance network
+ * devices, but is probably unfamiliar to the average network engineer.
+ *
+ * The way this works is that each byte of input causes a transition to
+ * the next state. That means we can parse the response from a server
+ * without having to buffer packets. The server can send the response
+ * one byte at a time (one packet for each byte) or in one entire packet.
+ * Either way, we don't. We don't need to buffer the entire response
+ * header waiting for the final packet to arrive, but handle each packet
+ * individually.
+ *
+ * This is especially useful with our custom TCP stack, which simply
+ * rejects out-of-order packets.
+ ***************************************************************************/
+static void http_parse(const struct Banner1 *banner1, void *banner1_private,
+                       struct ProtocolState *pstate,
+                       struct ResendPayload *resend_payload,
+                       const unsigned char *px, size_t length,
+                       struct BannerOutput *banout, struct SignOutput *signout,
+                       struct KeyOutput **keyout,
+                       struct InteractiveData *more) {
+
+  size_t state = pstate->state;
+  size_t i;
+  size_t state2;
+  size_t log_begin = 0;
+  size_t log_end = 0;
+  size_t id;
+  enum {
+    FIELD_START = 9,
+    FIELD_NAME,
+    FIELD_COLON,
+    FIELD_VALUE,
+    CONTENT,
+    CONTENT_TAG,
+    CONTENT_FIELD,
+
+    DONE_PARSING
+  };
+  UNUSEDPARM(banner1_private);
+  UNUSEDPARM(resend_payload);
+  UNUSEDPARM(signout);
+  UNUSEDPARM(keyout);
+
+  assert(pstate->parser_stream == &banner_http);
+
+  state2 = (state >> 16) & 0xFFFF;
+  id = (state >> 8) & 0xFF;
+  state = (state >> 0) & 0xFF;
+
+  for (i = 0; i < length; i++) {
+    switch (state) {
+    case 0:
+    case 1:
+    case 2:
+    case 3:
+    case 4:
+      if (toupper(px[i]) != "HTTP/"[state]) {
+        state = DONE_PARSING;
+        tcp_close(more);
+      } else
+        state++;
+      break;
+    case 5:
+      if (px[i] == '.')
+        state++;
+      else if (!isdigit(px[i])) {
+        state = DONE_PARSING;
+        tcp_close(more);
+      }
+      break;
+    case 6:
+      if (isspace(px[i]))
+        state++;
+      else if (!isdigit(px[i])) {
+        state = DONE_PARSING;
+        tcp_close(more);
+      }
+      break;
+    case 7:
+      /* TODO: look for 1xx response code */
+      if (px[i] == '\n')
+        state = FIELD_START;
+      break;
+    case FIELD_START:
+      if (px[i] == '\r')
+        break;
+      else if (px[i] == '\n') {
+        state2 = 0;
+        state = CONTENT;
+        log_end = i;
+        banout_append(banout, PROTO_HTTP, px + log_begin, log_end - log_begin);
+        log_begin = log_end;
+        break;
+      } else {
+        state2 = 0;
+        state = FIELD_NAME;
+        /* drop down */
+      }
+    case FIELD_NAME:
+      if (px[i] == '\r')
+        break;
+      id = smack_search_next(banner1->http_fields, &state2, px, &i, length);
+      i--;
+      if (id == HTTPFIELD_NEWLINE) {
+        state2 = 0;
+        state = FIELD_START;
+      } else if (id == SMACK_NOT_FOUND) {
+        ; /* continue here */
+      } else if (id == HTTPFIELD_UNKNOWN) {
+        /* Oops, at this point, both ":" and "Server:" will match.
+         * Therefore, we need to make sure ":" was found, and not
+         * a known field like "Server:" */
+        size_t id2;
+        id2 = smack_next_match(banner1->http_fields, &state2);
+        if (id2 != SMACK_NOT_FOUND) {
+          id = id2;
+        }
+        state = FIELD_COLON;
+      } else
+        state = FIELD_COLON;
+      break;
+    case FIELD_COLON:
+      if (px[i] == '\n') {
+        state = FIELD_START;
+        break;
+      } else if (isspace(px[i])) {
+        break;
+      } else {
+        // field_name(banout, id, http_fields);
+        state = FIELD_VALUE;
+        /* drop down */
+      }
+    case FIELD_VALUE:
+      if (px[i] == '\r')
+        break;
+      else if (px[i] == '\n') {
+        state = FIELD_START;
+        break;
+      }
+      switch (id) {
+      case HTTPFIELD_SERVER:
+        banout_append(banout, PROTO_HTTP_SERVER, &px[i], 1);
+        break;
+      case HTTPFIELD_LOCATION:
+      case HTTPFIELD_VIA:
+        // banner_append(&px[i], 1, banout);
+        break;
+      case HTTPFIELD_CONTENT_LENGTH:
+        if (isdigit(px[i] & 0xFF)) {
+          ; /*TODO: add content length parsing */
+        } else {
+          id = 0;
+        }
+        break;
+      }
+      break;
+    case CONTENT: {
+      size_t next = i;
+      id = smack_search_next(banner1->html_fields, &state2, px, &next, length);
+      if (banner1->is_capture_html) {
+        banout_append(banout, PROTO_HTML_FULL, &px[i], next - i);
+      }
+
+      if (id != SMACK_NOT_FOUND) {
+        state = CONTENT_TAG;
+      }
+
+      i = next - 1;
+    } break;
+    case CONTENT_TAG:
+      for (; i < length; i++) {
+        if (banner1->is_capture_html) {
+          banout_append_char(banout, PROTO_HTML_FULL, px[i]);
+        }
+
+        if (px[i] == '>') {
+          state = CONTENT_FIELD;
+          break;
+        }
+      }
+      break;
+    case CONTENT_FIELD:
+      if (banner1->is_capture_html) {
+        banout_append_char(banout, PROTO_HTML_FULL, px[i]);
+      }
+      if (px[i] == '<')
+        state = CONTENT;
+      else {
+        banout_append_char(banout, PROTO_HTML_TITLE, px[i]);
+      }
+      break;
+    case DONE_PARSING:
+    default:
+      i = length;
+      break;
+    }
+  }
+
+  if (log_end == 0 && state < CONTENT)
+    log_end = i;
+  if (log_begin < log_end)
+    banout_append(banout, PROTO_HTTP, px + log_begin, log_end - log_begin);
+
+  if (state == DONE_PARSING)
+    pstate->state = state;
+  else
+    pstate->state = (state2 & 0xFFFF) << 16 | (id & 0xFF) << 8 | (state & 0xFF);
+}
+
+static void http_transmit_hello(const struct Banner1 *banner1,
+                                struct ProtocolState *pstate,
+                                struct ResendPayload *resend_payload,
+                                struct BannerOutput *banout,
+                                struct KeyOutput **keyout,
+                                struct InteractiveData *more) {
+
+  UNUSEDPARM(banout);
+  UNUSEDPARM(keyout);
+  UNUSEDPARM(resend_payload);
+
+  assert(pstate->parser_stream == &banner_http);
+  if (banner1->is_dynamic_set_host) {
+    unsigned char *data = NULL;
+    size_t data_length = 0;
+    ipaddress_formatted_t fmt;
+    ipaddress_fmt(&fmt, &pstate->ip);
+
+    data_length = banner_http.hello_length;
+    data = MALLOC(data_length + sizeof("Host: ") + sizeof(fmt.string) + 16);
+    memcpy(data, banner_http.hello, banner_http.hello_length);
+    data[data_length] = '\0';
+
+    data_length = http_change_field(&data, data_length,
+                                    "Host:", (unsigned char *)fmt.string,
+                                    strlen(fmt.string), http_field_replace);
+
+    tcp_transmit(more, data, data_length, true);
+  } else {
+    tcp_transmit(more, banner_http.hello, banner_http.hello_length, 0);
+  }
+  return;
+}
+
+static const char *test_response =
+    "HTTP/1.0 200 OK\r\n"
+    "Date: Wed, 13 Jan 2021 18:18:25 GMT\r\n"
+    "Expires: -1\r\n"
+    "Cache-Control: private, max-age=0\r\n"
+    "Content-Type: text/html; charset=ISO-8859-1\r\n"
+    "P3P: CP=\x22This is not a P3P policy! See g.co/p3phelp for more "
+    "info.\x22\r\n"
+    "Server: gws\r\n"
+    "X-XSS-Protection: 0\r\n"
+    "X-Frame-Options: SAMEORIGIN\r\n"
+    "Set-Cookie: 1P_JAR=2021-01-13-18; expires=Fri, 12-Feb-2021 18:18:25 GMT; "
+    "path=/; domain=.google.com; Secure\r\n"
+    "Set-Cookie: "
+    "NID=207=QioO2ZqRsR6k1wtvXjuuhLrXYtl6ki8SQhf56doo_"
+    "wcADvldNoHfnKvFk1YXdxSVTWnmqHQVPC6ZudGneMs7vDftJ6vB36B0OCDy_KetZ3sOT_"
+    "ZAHcmi1pAGeO0VekZ0SYt_UXMjcDhuvNVW7hbuHEeXQFSgBywyzB6mF2EVN00; "
+    "expires=Thu, 15-Jul-2021 18:18:25 GMT; path=/; domain=.google.com; "
+    "HttpOnly\r\n"
+    "Accept-Ranges: none\r\n"
+    "Vary: Accept-Encoding\r\n"
+    "\r\n";
+
+static int http_selftest_parser(void) {
+
+  struct Banner1 *banner1 = NULL;
+  struct ProtocolState state[1] = {{0}};
+  struct BannerOutput banout[1] = {{0}};
+  struct SignOutput signout[1] = {{0}};
+  struct KeyOutput *keyout = NULL;
+  struct ResendPayload resend_payload;
+  struct InteractiveData more[1] = {{0}};
+
+  int is_fail = 0;
+
+  /* Test start */
+  banner1 = banner1_create();
+  banner1->is_capture_servername = true;
+  banner1_init(banner1);
+  banout_init(banout);
+  signout_init(signout);
+  keyout_init(&keyout);
+  state->app_proto = PROTO_HTTP;
+  state->parser_stream = &banner_http;
+
+  /* Run Test */
+  init_application_proto(banner1, state, &resend_payload, banout, &keyout);
+  application_receive_next(banner1, state, state, &resend_payload,
+                           (const unsigned char *)test_response,
+                           strlen(test_response), banout, signout, &keyout,
+                           more);
+  free_interactive_data(more);
+
+  /* Verify results */
+  {
+    const unsigned char *string;
+    size_t length;
+
+    string = banout_string(banout, PROTO_HTTP_SERVER);
+    length = banout_string_length(banout, PROTO_HTTP_SERVER);
+
+    if (length != 3 || memcmp(string, "gws", 3) != 0) {
+      LOG(LEVEL_ERROR, "[-] HTTP parser failed: %s %u\n", __FILE__, __LINE__);
+      is_fail = 0;
+    }
+  }
+
+  /* Test end */
+  cleanup_application_proto(banner1, state, &resend_payload);
+  keyout_release(&keyout);
+  signout_release(signout);
+  banner1_destroy(banner1);
+  banout_release(banout);
+
+  return is_fail;
+}
+
+static int http_selftest_config(void) {
+
+  size_t i;
+  static const struct {
+    const char *from;
+    const char *to;
+  } urlsamples[] = {
+      {"", "GET /foo.html"},
+      {"GET / HTTP/1.0\r\n\r\n", "GET /foo.html HTTP/1.0\r\n\r\n"},
+      {"GET  /longerthan HTTP/1.0\r\n\r\n", "GET  /foo.html HTTP/1.0\r\n\r\n"},
+      {NULL, NULL}};
+  static const struct {
+    const char *from;
+    const char *to;
+  } methodsamples[] = {{"", "POST"},
+                       {"GET / HTTP/1.0\r\n\r\n", "POST / HTTP/1.0\r\n\r\n"},
+                       {"O  /  HTTP/1.0\r\n\r\n", "POST  /  HTTP/1.0\r\n\r\n"},
+                       {NULL, NULL}};
+  static const struct {
+    const char *from;
+    const char *to;
+  } versionsamples[] = {
+      {"", "GET / HTTP/1.1"},
+      {"GET / FOO\r\n\r\n", "GET / HTTP/1.1\r\n\r\n"},
+      {"GET  /  XXXXXXXXXXXX\r\n\r\n", "GET  /  HTTP/1.1\r\n\r\n"},
+      {NULL, NULL}};
+  static const struct {
+    const char *from;
+    const char *to;
+  } fieldsamples[] = {
+      {"GET / HTTP/1.0\r\nfoobar: a\r\nHost: xyz\r\n\r\n",
+       "GET / HTTP/1.0\r\nfoobar: a\r\nHost: xyz\r\nfoo: bar\r\n\r\n"},
+      {"GET / HTTP/1.0\r\nfoo:abc\r\nHost: xyz\r\n\r\n",
+       "GET / HTTP/1.0\r\nfoo: bar\r\nHost: xyz\r\n\r\n"},
+      {"GET / HTTP/1.0\r\nfoo: abcdef\r\nHost: xyz\r\n\r\n",
+       "GET / HTTP/1.0\r\nfoo: bar\r\nHost: xyz\r\n\r\n"},
+      {"GET / HTTP/1.0\r\nfoo: a\r\nHost: xyz\r\n\r\n",
+       "GET / HTTP/1.0\r\nfoo: bar\r\nHost: xyz\r\n\r\n"},
+      {"GET / HTTP/1.0\r\nHost: xyz\r\n\r\n",
+       "GET / HTTP/1.0\r\nHost: xyz\r\nfoo: bar\r\n\r\n"},
+      {NULL, NULL}};
+  static const struct {
+    const char *from;
+    const char *to;
+  } removesamples[] = {{"GET / HTTP/1.0\r\nfoo: a\r\nHost: xyz\r\n\r\n",
+                        "GET / HTTP/1.0\r\nHost: xyz\r\n\r\n"},
+                       {"GET / HTTP/1.0\r\nfooa: a\r\nHost: xyz\r\n\r\n",
+                        "GET / HTTP/1.0\r\nfooa: a\r\nHost: xyz\r\n\r\n"},
+                       {NULL, NULL}};
+  static const struct {
+    const char *from;
+    const char *to;
+  } payloadsamples[] = {{"", "GET / HTTP/1.0\r\n\r\nfoo"},
+                        {"GET / HTTP/1.0\r\nHost: xyz\r\n\r\nbar",
+                         "GET / HTTP/1.0\r\nHost: xyz\r\n\r\nfoo"},
+                        {NULL, NULL}};
+
+  /* Test replacing URL */
+  for (i = 0; urlsamples[i].from; i++) {
+    unsigned char *x = (unsigned char *)STRDUP(urlsamples[i].from);
+    size_t len1 = strlen((const char *)x);
+    size_t len2;
+    size_t len3 = strlen(urlsamples[i].to);
+
+    /* Replace whatever URL is in the header with this new one */
+    len2 = http_change_requestline(&x, len1, "/foo.html", ~(size_t)0,
+                                   http_request_line_url);
+
+    if (len2 != len3 && memcmp(urlsamples[i].to, x, len3) != 0) {
+      LOG(LEVEL_ERROR,
+          "[-] HTTP.selftest: config URL sample #%" PRIu64
+          " at line number %d\n",
+          i, __LINE__);
+      free(x);
+      return 1;
+    }
+    free(x);
+  }
+
+  /* Test replacing method */
+  for (i = 0; methodsamples[i].from; i++) {
+    unsigned char *x = (unsigned char *)STRDUP(methodsamples[i].from);
+    size_t len1 = strlen((const char *)x);
+    size_t len2;
+    size_t len3 = strlen(methodsamples[i].to);
+
+    len2 = http_change_requestline(&x, len1, "POST", ~(size_t)0,
+                                   http_request_line_method);
+
+    if (len2 != len3 && memcmp(methodsamples[i].to, x, len3) != 0) {
+      LOG(LEVEL_ERROR,
+          "[-] HTTP.selftest: config method sample #%" PRIu64
+          " at line number %d\n",
+          i, __LINE__);
+      free(x);
+      return 1;
+    }
+    free(x);
+  }
+
+  /* Test replacing version */
+  for (i = 0; versionsamples[i].from; i++) {
+    unsigned char *x = (unsigned char *)STRDUP(versionsamples[i].from);
+    size_t len1 = strlen((const char *)x);
+    size_t len2;
+    size_t len3 = strlen(versionsamples[i].to);
+
+    len2 = http_change_requestline(&x, len1, "HTTP/1.1", ~(size_t)0,
+                                   http_request_line_version);
+
+    if (len2 != len3 && memcmp(versionsamples[i].to, x, len3) != 0) {
+      LOG(LEVEL_ERROR,
+          "[-] HTTP.selftest: config version sample #%" PRIu64
+          " at line number %d\n",
+          i, __LINE__);
+      free(x);
+      return 1;
+    }
+    free(x);
+  }
+
+  /* Test payload */
+  for (i = 0; payloadsamples[i].from; i++) {
+    unsigned char *x = (unsigned char *)STRDUP(payloadsamples[i].from);
+    size_t len1 = strlen((const char *)x);
+    size_t len2;
+    size_t len3 = strlen(payloadsamples[i].to);
+
+    len2 = http_change_requestline(&x, len1, "foo", ~(size_t)0,
+                                   http_request_line_payload);
+
+    if (len2 != len3 && memcmp(payloadsamples[i].to, x, len3) != 0) {
+      LOG(LEVEL_ERROR,
+          "[-] HTTP.selftest: config payload sample #%" PRIu64
+          " at line number %d\n",
+          i, __LINE__);
+      free(x);
+      return 1;
+    }
+    free(x);
+  }
+
+  /* Test adding fields */
+  for (i = 0; fieldsamples[i].from; i++) {
+    unsigned char *x;
+    size_t len1 = strlen((const char *)fieldsamples[i].from);
+    size_t len2;
+    size_t len3 = strlen(fieldsamples[i].to);
+
+    /* Replace whatever URL is in the header with this new one */
+    x = (unsigned char *)STRDUP(fieldsamples[i].from);
+    len2 = http_change_field(&x, len1, "foo", (const unsigned char *)"bar",
+                             ~(size_t)0, http_field_replace);
+    if (len2 != len3 || memcmp(fieldsamples[i].to, x, len3) != 0) {
+      LOG(LEVEL_ERROR,
+          "[-] HTTP.selftest: config header field sample #%" PRIu64
+          " at line number %d\n",
+          i, __LINE__);
+      free(x);
+      return 1;
+    }
+    free(x);
+
+    /* Same test as above, but when name specified with a colon */
+    x = (unsigned char *)STRDUP(fieldsamples[i].from);
+    len2 = http_change_field(&x, len1, "foo:", (const unsigned char *)"bar",
+                             ~(size_t)0, http_field_replace);
+    if (len2 != len3 || memcmp(fieldsamples[i].to, x, len3) != 0) {
+      LOG(LEVEL_ERROR,
+          "[-] HTTP.selftest: config header field sample #%" PRIu64
+          " at line number %d\n",
+          i, __LINE__);
+      free(x);
+      return 1;
+    }
+    free(x);
+
+    /* Same test as above, but with name having additional space */
+    x = (unsigned char *)STRDUP(fieldsamples[i].from);
+    len2 = http_change_field(&x, len1, "foo : : ", (const unsigned char *)"bar",
+                             ~(size_t)0, http_field_replace);
+    if (len2 != len3 || memcmp(fieldsamples[i].to, x, len3) != 0) {
+      LOG(LEVEL_ERROR,
+          "[-] HTTP.selftest: config header field sample #%" PRIu64
+          " at line number %d\n",
+          i, __LINE__);
+      free(x);
+      return 1;
+    }
+    free(x);
+  }
+
+  /* Removing fields */
+  for (i = 0; removesamples[i].from; i++) {
+    unsigned char *x = (unsigned char *)STRDUP(removesamples[i].from);
+    size_t len1 = strlen((const char *)x);
+    size_t len2;
+    size_t len3 = strlen(removesamples[i].to);
+
+    /* Replace whatever URL is in the header with this new one */
+    len2 = http_change_field(&x, len1, "foo", (const unsigned char *)"bar",
+                             ~(size_t)0, http_field_remove);
+
+    if (len2 != len3 || memcmp(removesamples[i].to, x, len3) != 0) {
+      LOG(LEVEL_ERROR,
+          "[-] HTTP.selftest: config remove field sample #%" PRIu64
+          " at line number %d\n",
+          i, __LINE__);
+      free(x);
+      return 1;
+    }
+    free(x);
+  }
+
+  return 0;
+}
+
+/***************************************************************************
+ * Called when `--selftest` command-line parameter in order to do some
+ * basic unit testing of this module.
+ ***************************************************************************/
+static int http_selftest(void) {
+  int err;
+
+  /* Test parsing HTTP responses */
+  err = http_selftest_parser();
+  REGRESS(err == 0);
+
+  /* Test configuring HTTP requests */
+  err = http_selftest_config();
+  REGRESS(err == 0);
+
+  return 0; /* success */
+}
+
+/***************************************************************************
+ ***************************************************************************/
+struct ProtocolParserStream banner_http = {"http",
+                                           PROTO_HTTP,
+                                           false,
+                                           http_hello,
+                                           sizeof(http_hello) - 1,
+                                           0,
+                                           http_selftest,
+                                           http_init,
+                                           http_cleanup,
+                                           NULL,
+                                           http_parse,
+                                           NULL,
+                                           http_transmit_hello};
