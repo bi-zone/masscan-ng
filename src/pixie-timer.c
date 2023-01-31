@@ -173,8 +173,8 @@ uint64_t pixie_gettime(void) {
 #if defined(CLOCK_UPTIME_RAW)
   /* macOS: ignores time when suspended/sleep */
   x = clock_gettime(CLOCK_UPTIME_RAW, &tv);
-//#elif defined(CLOCK_MONOTONIC_RAW)
-//    x = clock_gettime(CLOCK_MONOTONIC_RAW, &tv);
+// #elif defined(CLOCK_MONOTONIC_RAW)
+//     x = clock_gettime(CLOCK_MONOTONIC_RAW, &tv);
 #else
   x = clock_gettime(CLOCK_MONOTONIC, &tv);
 #endif

@@ -66,10 +66,10 @@ void masscan_usage() {
 /***************************************************************************
  ***************************************************************************/
 void print_version() {
-  const char *cpu = "unknown";
-  const char *compiler = "unknown";
-  const char *compiler_version = "unknown";
-  const char *os = "unknown";
+  const char *cpu = NULL;
+  const char *compiler = NULL;
+  const char *compiler_version = NULL;
+  const char *os = NULL;
   printf("\n");
   printf("Masscan version " MASSCAN_VERSION " ( " MASSCAN_REPO_LINK " )\n");
   printf("Compiled on: %s %s\n", __DATE__, __TIME__);
@@ -97,7 +97,11 @@ void print_version() {
   compiler_version = "post-2013";
 #endif
 #elif defined(__GNUC__)
+#if defined(__clang__)
+  compiler = "clang";
+#else
   compiler = "gcc";
+#endif
   compiler_version = __VERSION__;
 
 #if defined(i386) || defined(__i386) || defined(__i386__)
@@ -107,7 +111,6 @@ void print_version() {
 #if defined(__corei7) || defined(__corei7__)
   cpu = "x86-Corei7";
 #endif
-
 #endif
 
 #if defined(WIN32)
@@ -126,9 +129,11 @@ void print_version() {
   os = "Unix";
 #endif
 
-  printf("Compiler: %s %s\n", compiler, compiler_version);
-  printf("OS: %s\n", os);
-  printf("CPU: %s (%u bits)\n", cpu, (unsigned)(sizeof(void *)) * 8);
+  printf("Compiler: %s %s\n", compiler ? compiler : "unknown",
+         compiler_version ? compiler_version : "unknown");
+  printf("OS: %s\n", os ? os : "unknown");
+  printf("CPU: %s (%u bits)\n", cpu ? cpu : "unknown",
+         (unsigned)(sizeof(void *)) * 8);
 
 #if defined(GIT)
   printf("GIT version: %s\n", GIT);

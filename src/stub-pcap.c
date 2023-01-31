@@ -32,7 +32,7 @@
 #if defined(_MSC_VER)
 #pragma warning(disable : 4115 4201)
 #pragma warning(disable : 4100) /* unreferenced formal parameter */
-//#include <winerror.h>
+// #include <winerror.h>
 #endif
 
 #include "stub-pcap.h"

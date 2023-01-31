@@ -1176,7 +1176,7 @@ void nmapserviceprobes_print(const struct NmapServiceProbeList *list,
       fprintf(fp, " ");
 
       for (vi = match->versioninfo; vi; vi = vi->next) {
-        const char *tag = "";
+        const char *tag = NULL;
         switch (vi->type) {
         case SvcV_Unknown:
           tag = "u";
@@ -1201,6 +1201,9 @@ void nmapserviceprobes_print(const struct NmapServiceProbeList *list,
           break;
         case SvcV_CpeName:
           tag = "cpe:";
+          break;
+        default:
+          tag = "";
           break;
         }
         fprintf(fp, "%s", tag);
