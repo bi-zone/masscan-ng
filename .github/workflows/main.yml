@@ -150,6 +150,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v1
+      - name: Install dependencies
+        run: |
+          brew install pcre
       - name: Build code
         run: |
           export CC=clang
