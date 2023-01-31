@@ -62,8 +62,8 @@ static int64_t rate_adjustment(struct ThreadPair *parms, int64_t batch_size,
        (t_lag > LIMIT_RECV_LAG_RATE_FIX))) { // 200 ms
     *p_need_fix_rate = true;
     LOG(LEVEL_DEBUG,
-        "Need rate decrease. Current max rate: %.2f\n%u-recv_queue, "
-        "%0.2f-t_recv" STATUS_EMPTY_STRING "\n",
+        "Need rate decrease. Current max rate: %.2f\n%" PRIuPTR
+        "-recv_queue, %0.2f-t_recv" STATUS_EMPTY_STRING "\n",
         throttler->max_rate, count_recv_queue, t_lag);
   }
   batch_size_with_fix_rate =

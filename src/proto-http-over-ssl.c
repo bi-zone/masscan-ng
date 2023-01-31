@@ -908,9 +908,8 @@ void print_all_for_test(struct BannerOutput *banout,
   for (iter_banout = banout; iter_banout != NULL;
        iter_banout = iter_banout->next) {
     if (iter_banout->length && iter_banout->protocol) {
-      LOG(LEVEL_ERROR, "banner: %" PRIu64 " %.*s\n",
-          iter_banout->protocol & 0xFFFF, iter_banout->length,
-          iter_banout->banner);
+      LOG(LEVEL_ERROR, "banner: %u %.*s\n", iter_banout->protocol & 0xFFFF,
+          (int)iter_banout->length, iter_banout->banner);
     }
   }
 }

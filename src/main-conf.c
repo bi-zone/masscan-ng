@@ -5552,7 +5552,7 @@ void masscan_command_line(struct Masscan *masscan, int argc, char *argv[]) {
   if (masscan->shard.of < masscan->shard.one) {
     LOG(LEVEL_WARNING,
         "[-] WARNING: the shard number must be less than the total shard "
-        "count: %u/%u\n",
+        "count: %" PRIuPTR "/%" PRIuPTR "\n",
         masscan->shard.one, masscan->shard.of);
   }
   if (masscan->shard.of > 1 && masscan->seed == 0) {

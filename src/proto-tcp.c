@@ -224,7 +224,7 @@ void tcpcon_set_parameter(struct TCP_ConnectionTable *tcpcon, const char *name,
   if (name_equals(name, "timeout") || name_equals(name, "connection-timeout")) {
     uint64_t n = parseInt(value, value_length);
     tcpcon->timeout_connection = (time_t)n;
-    LOG(LEVEL_INFO, "TCP connection-timeout = %u\n",
+    LOG(LEVEL_INFO, "TCP connection-timeout = %" PRIu64 "\n",
         tcpcon->timeout_connection);
     return;
   }
