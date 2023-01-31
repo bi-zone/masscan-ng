@@ -133,8 +133,6 @@ void rawsock_init(void) {
       if (pAdapter->Type != MIB_IF_TYPE_ETHERNET)
         continue;
 
-      // printf("\tComboIndex: \t%d\n", pAdapter->ComboIndex);
-      // printf("\tAdapter Name: \t%s\n", pAdapter->AdapterName);
       {
         size_t name_len = strlen(pAdapter->AdapterName) + 12 + 1;
         char *name = (char *)malloc(name_len);
@@ -146,8 +144,6 @@ void rawsock_init(void) {
 
         sprintf_s(name, name_len, "\\Device\\NPF_%s", pAdapter->AdapterName);
 
-        // printf("\tAdapter Desc: \t%s\n", pAdapter->Description);
-        // printf("\tAdapter Addr: \t");
         for (i = 0; i < (size_t)pAdapter->AddressLength; i++) {
           size_t offset = i * 3;
           if (i == (size_t)(pAdapter->AddressLength - 1))
@@ -157,13 +153,10 @@ void rawsock_init(void) {
             sprintf_s(addr + offset, addr_len - offset, "%.2X-",
                       pAdapter->Address[i]);
         }
-        // printf("%s  ->  %s\n", addr, name);
         adapter_names[adapter_name_count].easy_name = addr;
         adapter_names[adapter_name_count].hard_name = name;
         adapter_name_count++;
       }
-
-      // printf("\tIndex: \t%d\n", pAdapter->Index);
 
       {
         size_t name_len = strlen(pAdapter->AdapterName) + 12 + 1;
@@ -175,7 +168,6 @@ void rawsock_init(void) {
         sprintf_s(name, name_len, "\\Device\\NPF_%s", pAdapter->AdapterName);
         sprintf_s(addr, addr_len, "%s",
                   pAdapter->IpAddressList.IpAddress.String);
-        // printf("%s  ->  %s\n", addr, name);
         adapter_names[adapter_name_count].easy_name = addr;
         adapter_names[adapter_name_count].hard_name = name;
         adapter_name_count++;
@@ -277,12 +269,13 @@ void rawsock_flush(struct Adapter *adapter) {
  * transmit them all in a chunk. If we stop and wait for a bit, we need
  * to flush the queue to force packets to be transmitted immediately.
  ***************************************************************************/
-int rawsock_send_packet(struct Adapter *adapter, const unsigned char *packet,
+int rawsock_send_packet(struct Adapter *adapter, unsigned char *packet,
                         unsigned length, unsigned flush) {
   /* Why: this happens in "offline mode", when we are benchmarking the
    * core algorithms without sending packets. */
-  if (adapter == 0)
+  if (adapter == 0) {
     return 0;
+  }
 
   /* Print --packet-trace if debugging */
   if (adapter->is_packet_trace) {
@@ -296,8 +289,9 @@ int rawsock_send_packet(struct Adapter *adapter, const unsigned char *packet,
     while (err == PF_RING_ERROR_NO_TX_SLOT_AVAILABLE) {
       err = PFRING.send(adapter->ring, packet, length, (unsigned char)flush);
     }
-    if (err < 0)
+    if (err < 0) {
       LOG(LEVEL_INFO, "pfring:xmit: ERROR %d\n", err);
+    }
     return err;
   }
 
@@ -338,7 +332,7 @@ int rawsock_send_packet(struct Adapter *adapter, const unsigned char *packet,
  ***************************************************************************/
 int rawsock_recv_packet(struct Adapter *adapter, unsigned *length,
                         unsigned *secs, unsigned *usecs,
-                        const unsigned char **packet) {
+                        unsigned char **packet) {
 
   if (adapter->ring) {
     /* This is for doing libpfring instead of libpcap */
@@ -346,10 +340,9 @@ int rawsock_recv_packet(struct Adapter *adapter, unsigned *length,
     int err;
 
   again_ring:
-    err =
-        PFRING.recv(adapter->ring, (unsigned char **)packet, 0, /* zero-copy */
-                    &hdr, 0 /* return immediately */
-        );
+    err = PFRING.recv(adapter->ring, packet, 0, /* zero-copy */
+                      &hdr, 0                   /* return immediately */
+    );
     if (err == PF_RING_ERROR_NO_PKT_AVAILABLE || hdr.caplen == 0) {
       PFRING.poll(adapter->ring, 1);
       if (is_tx_done)
@@ -620,8 +613,9 @@ struct Adapter *rawsock_init_adapter(const char *adapter_name,
     const char *new_adapter_name;
 
     new_adapter_name = adapter_from_index(atoi(adapter_name));
-    if (new_adapter_name == 0) {
+    if (new_adapter_name == NULL) {
       LOG(LEVEL_ERROR, "pcap_open_live(%s) error: bad index\n", adapter_name);
+      rawsock_close_adapter(adapter);
       return NULL;
     } else
       adapter_name = new_adapter_name;
@@ -639,6 +633,7 @@ struct Adapter *rawsock_init_adapter(const char *adapter_name,
           adapter_name)) { /*First ensure pfring dna adapter is available*/
     LOG(LEVEL_ERROR, "No pfring adapter available. Please install pfring or "
                      "run masscan without the --pfring option.\n");
+    rawsock_close_adapter(adapter);
     return NULL;
   }
 
@@ -663,6 +658,7 @@ struct Adapter *rawsock_init_adapter(const char *adapter_name,
     if (adapter->ring == NULL) {
       LOG(LEVEL_ERROR, "pfring:'%s': OPEN ERROR: %s\n", adapter_name,
           strerror(errno));
+      rawsock_close_adapter(adapter);
       return NULL;
     } else
       LOG(LEVEL_INFO, "pfring:'%s': successfully opened\n", adapter_name);
@@ -692,8 +688,7 @@ struct Adapter *rawsock_init_adapter(const char *adapter_name,
     if (err != 0) {
       LOG(LEVEL_ERROR, "pfring: '%s': ENABLE ERROR: %s\n", adapter_name,
           strerror(errno));
-      PFRING.close(adapter->ring);
-      adapter->ring = 0;
+      rawsock_close_adapter(adapter);
       return NULL;
     } else
       LOG(LEVEL_INFO, "pfring:'%s': successfully enabled\n", adapter_name);
@@ -716,6 +711,7 @@ struct Adapter *rawsock_init_adapter(const char *adapter_name,
         LOG(LEVEL_ERROR, "FAIL: permission denied\n");
         LOG(LEVEL_ERROR, " [hint] need to sudo or run as root or something\n");
       }
+      rawsock_close_adapter(adapter);
       return NULL;
     }
 
@@ -723,8 +719,7 @@ struct Adapter *rawsock_init_adapter(const char *adapter_name,
     switch (adapter->link_type) {
     case -1:
       PCAP.perror(adapter->pcap, "if: datalink");
-      PCAP.close(adapter->pcap);
-      adapter->pcap = NULL;
+      rawsock_close_adapter(adapter);
       return NULL;
     case 1:  /* Ethernet */
     case 12: /* IP Raw */
@@ -765,6 +760,7 @@ struct Adapter *rawsock_init_adapter(const char *adapter_name,
           LOG(LEVEL_ERROR,
               " [hint] need to sudo or run as root or something\n");
         }
+        rawsock_close_adapter(adapter);
         return NULL;
       }
     } else {
@@ -856,8 +852,7 @@ pcap_error:
   if (strcmp(adapter_name, "vmnet1") == 0) {
     LOG(LEVEL_ERROR, " [hint] VMware on Macintosh doesn't support masscan\n");
   }
-  PCAP.close(adapter->pcap);
-  adapter->pcap = NULL;
+  rawsock_close_adapter(adapter);
   return NULL;
 }
 

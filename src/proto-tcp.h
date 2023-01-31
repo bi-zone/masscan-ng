@@ -20,7 +20,7 @@ struct ResendPayload {
    * malloc() from the heap, in which case we'll have to free()
    * it. (Most payloads are static memory) */
   unsigned is_dynamic : 1;
-  const unsigned char *data;
+  unsigned char *data;
   unsigned short data_length;
 };
 

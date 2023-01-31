@@ -555,9 +555,9 @@ static void parse_handshake(const struct Banner1 *banner1,
        * length, so we can't process this below in the CONTENT state
        * but have to do it here at the end of the LENGTH2 state */
       if (ssl->handshake.type == 2 && banner1->is_heartbleed) {
-        static const char heartbleed_request[] = "\x15\x03\x02\x00\x02\x01\x80"
-                                                 "\x18\x03\x02\x00\x03\x01"
-                                                 "\x40\x00";
+        static char heartbleed_request[] = "\x15\x03\x02\x00\x02\x01\x80"
+                                           "\x18\x03\x02\x00\x03\x01"
+                                           "\x40\x00";
         tcp_transmit(more, heartbleed_request, sizeof(heartbleed_request) - 1,
                      0);
       }
@@ -1009,7 +1009,7 @@ static void ssl_cleanup(struct Banner1 *banner1) {
  * TODO: we need to make this dynamically generated, so that users can
  * select various options.
  *****************************************************************************/
-static const char ssl_hello_template[] =
+static char ssl_hello_template[] =
     "\x16\x03\x02\x01\x6f" /* TLSv1.1 record layer */
     "\x01"                 /* type = client-hello */
     "\x00\x01\x6b"         /* length = 363 */
@@ -1203,12 +1203,14 @@ size_t ssl_hello_size(const void *templ) {
 /*****************************************************************************
  *****************************************************************************/
 char *ssl_hello(const void *templ) {
-  unsigned char *px = (unsigned char *)templ;
+  unsigned char *px;
   unsigned now = (unsigned)time(0);
   size_t i;
 
   /* parse existing template to figure out size */
-  size_t template_size = ((size_t)px[3] << 8 | (size_t)px[4]) + 5;
+  size_t template_size = ((size_t)((const unsigned char *)templ)[3] << 8 |
+                          (size_t)((const unsigned char *)templ)[4]) +
+                         5;
 
   /* allocate memory for that size and copy */
   px = MALLOC(template_size);
@@ -1250,11 +1252,12 @@ static int ssl_selftest(void) {
   struct KeyOutput *keyout = NULL;
   struct ResendPayload resend_payload;
   struct InteractiveData more = {0};
-  unsigned x;
+  int x = 0;
 
   /* Yahoo cert */
   {
-    struct CertDecode certstate[1] = {{0}};
+    struct CertDecode certstate[1];
+    bool check;
 
     x509_decode_init(certstate, yahoo_cert_size);
 
@@ -1263,10 +1266,10 @@ static int ssl_selftest(void) {
     banner1_init(banner1);
     banout_init(banout1);
     x509_decode(certstate, yahoo_cert, yahoo_cert_size, banout1);
-    x = banout_is_contains(banout1, PROTO_SSL3, ", fr.yahoo.com, ");
-    if (!x) {
+    check = banout_is_contains(banout1, PROTO_SSL3, ", fr.yahoo.com, ");
+    if (!check) {
       LOG(LEVEL_ERROR, "x.509 parser failure: google.com\n");
-      return 1;
+      x += 1;
     }
     banner1_destroy(banner1);
     banout_release(banout1);
@@ -1274,7 +1277,8 @@ static int ssl_selftest(void) {
 
   /* Google cert */
   {
-    struct CertDecode certstate[1] = {{0}};
+    struct CertDecode certstate[1];
+    bool check;
 
     x509_decode_init(certstate, google_cert_size);
 
@@ -1283,11 +1287,11 @@ static int ssl_selftest(void) {
     banner1_init(banner1);
     banout_init(banout1);
     x509_decode(certstate, google_cert, google_cert_size, banout1);
-    x = banout_is_equal(banout1, PROTO_SSL3,
-                        ", www.google.com, www.google.com");
-    if (!x) {
+    check = banout_is_equal(banout1, PROTO_SSL3,
+                            ", www.google.com, www.google.com");
+    if (!check) {
       LOG(LEVEL_ERROR, "x.509 parser failure: google.com\n");
-      return 1;
+      x += 1;
     }
     banner1_destroy(banner1);
     banout_release(banout1);
@@ -1363,12 +1367,13 @@ static int ssl_selftest(void) {
 #if 0
     if (memcmp(banner, "cert:MIIGYjCCBUqgAwIBAgIIWQmqMKKz/PYwDQYJKoZIhvcNAQEFBQAwSTELMAkGA1UE", 65) != 0) {
 		LOG(LEVEL_ERROR, "FAIL: ssl test\n");
-        return 1;
+        x += 1;
     }
 
-    if (banner_offset != bannerx_offset
-        || memcmp(banner, bannerx, banner_offset) != 0)
-        return 1;
+    if (banner_offset != bannerx_offset 
+        || memcmp(banner, bannerx, banner_offset) != 0) {
+        x += 1;
+    }
 #endif
 #if 0
     {
@@ -1393,7 +1398,7 @@ static int ssl_selftest(void) {
     }
 #endif
 
-  return 0;
+  return x;
 }
 
 /*****************************************************************************

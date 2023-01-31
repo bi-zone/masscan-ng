@@ -814,7 +814,7 @@ struct TCP_Control_Block *tcb_lookup(struct TCP_ConnectionTable *tcpcon,
  ***************************************************************************/
 static void tcpcon_send_packet(struct TCP_ConnectionTable *tcpcon,
                                struct TCP_Control_Block *tcb,
-                               unsigned tcp_flags, const unsigned char *payload,
+                               unsigned tcp_flags, unsigned char *payload,
                                size_t payload_length,
                                unsigned is_payload_dynamic, unsigned ctrl) {
   struct PacketBufferTransmit *response;
@@ -868,7 +868,7 @@ static void tcpcon_send_packet(struct TCP_ConnectionTable *tcpcon,
     // pass
   } else {
     size_t size_new_payload = payload_length + tcb->payload.data_length;
-    const unsigned char *new_payload = malloc(size_new_payload);
+    unsigned char *new_payload = malloc(size_new_payload);
     if (new_payload == NULL) {
       LOG(LEVEL_WARNING, "Out of memory\n");
     } else {
@@ -1246,7 +1246,6 @@ void application_receive_next(
       banner1, banner1->http_fields, tcb_state, resend_payload, payload,
       payload_length, banout, signout, keyout, more);
   append_interactive_data(more, &more_heur);
-  free_interactive_data(&more_heur);
 }
 
 static void application(struct TCP_ConnectionTable *tcpcon,
@@ -1546,7 +1545,7 @@ int stack_incoming_tcp(struct TCP_ConnectionTable *tcpcon,
 
         /* kludge: should never be NULL< but somehow is */
         if (tcb->payload.data) {
-          const unsigned char *new_payload;
+          unsigned char *new_payload;
           unsigned is_payload_dynamic;
           assert(len <= tcb->payload.data_length);
           if (len == 0) {

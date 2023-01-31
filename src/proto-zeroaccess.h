@@ -13,7 +13,7 @@ unsigned handle_zeroaccess(struct Banner1 *banner1, struct Output *out,
                            size_t length, struct PreprocessedInfo *parsed,
                            uint64_t entropy);
 
-extern const unsigned char zeroaccess_getL[];
+extern char zeroaccess_getL[];
 #define zeroaccess_getL_length 16
 
 /* Regression test this module.

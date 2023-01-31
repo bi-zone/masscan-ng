@@ -28,11 +28,9 @@ void massip_optimize(struct MassIP *targets) {
       targets->count_ipv4s * rangelist_count(&targets->ports);
 }
 
-int massip_pick(const struct MassIP *massip, uint64_t index, ipaddress *addr,
+int massip_pick(struct MassIP *massip, uint64_t index, ipaddress *addr,
                 unsigned *port) {
-  /*
-   * We can return either IPv4 or IPv6 addresses
-   */
+  /* We can return either IPv4 or IPv6 addresses */
   if (index < massip->ipv4_index_threshold) {
     addr->version = 4;
     addr->ipv4 = rangelist_pick(&massip->ipv4, index % massip->count_ipv4s);

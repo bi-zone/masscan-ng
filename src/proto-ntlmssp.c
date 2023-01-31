@@ -82,8 +82,6 @@
  unsigned integer that contains a value indicating the current revision of the
  NTLMSSP in use. This field SHOULD contain the following value:"
         "NTLMSSP_REVISION_W2K3 (0x0F): Version 15 of the NTLMSSP is in use."
-
-
  */
 
 static void append_unicode_string(struct BannerOutput *banout, unsigned proto,
@@ -109,34 +107,35 @@ void ntlmssp_decode(struct NtlmsspDecode *x, const unsigned char *px,
   // unsigned flags;
   size_t i;
 
-  if (length > (size_t)(x->length - x->offset)) {
-    length = (size_t)(x->length - x->offset);
+  if (length > x->length - x->offset) {
+    length = x->length - x->offset;
   }
 
   /* See if we have a fragment, in which case we need to allocate a buffer
    * to contain it */
   if (x->offset == 0 && x->length > length) {
-    x->buf = MALLOC((size_t)x->length);
+    x->buf = MALLOC(x->length);
     memcpy(x->buf, px, length);
-    x->offset = (unsigned)length;
+    x->offset = length;
     return;
   } else if (x->offset) {
     memcpy(x->buf + x->offset, px, length);
-    x->offset += (unsigned)length;
-    if (x->offset < x->length)
+    x->offset += length;
+    if (x->offset < x->length) {
       return;
+    }
 
     /* now reset the input to point to our buffer instead */
     px = x->buf;
-    length = (size_t)x->length;
+    length = x->length;
   }
 
   if (length < 56)
     goto end;
 
   /* Verify the signature. There are other protocols that we could possibly
-   * detect at this point and do something else useful with, but for right now,
-   * we are just doing NTLM */
+   * detect at this point and do something else useful with, but for right
+   * now, we are just doing NTLM */
   if (memcmp("NTLMSSP", px, 8) != 0)
     goto end;
 
@@ -221,14 +220,14 @@ end:
   /*  Free the buffer if needed */
   if (x->buf) {
     free(x->buf);
-    x->buf = 0;
+    x->buf = NULL;
   }
 }
 
 void ntlmssp_cleanup(struct NtlmsspDecode *x) {
   if (x->buf) {
     free(x->buf);
-    x->buf = 0;
+    x->buf = NULL;
   }
 }
 
@@ -238,12 +237,8 @@ void ntlmssp_decode_init(struct NtlmsspDecode *x, size_t length) {
   /* [security] Double-check this input, since it's ultimately driven by
    * user-input. The code that leads to here should already have double-checked
    * this, but I'm doing it again just in case. This is larger than any input
-   * that should be seen in the real world that a hacker isn't messing with.
-   */
-  if (length > 65536)
-    length = 65536;
-
-  x->length = (unsigned)length;
+   * that should be seen in the real world that a hacker isn't messing with. */
+  x->length = length;
   x->offset = 0;
   x->buf = NULL;
 }

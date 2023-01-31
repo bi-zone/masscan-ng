@@ -105,8 +105,9 @@ const unsigned char *banout_string(const struct BannerOutput *banout,
 
 /***************************************************************************
  ***************************************************************************/
-unsigned banout_is_equal(const struct BannerOutput *banout, unsigned proto,
-                         const char *string) {
+bool banout_is_equal(const struct BannerOutput *banout, unsigned proto,
+                     const char *string) {
+
   const unsigned char *string2;
   size_t string_length;
   size_t string2_length;
@@ -117,21 +118,21 @@ unsigned banout_is_equal(const struct BannerOutput *banout, unsigned proto,
     return string == NULL;
 
   if (string == NULL)
-    return 0;
+    return false;
 
   string_length = strlen(string);
   string2_length = banout_string_length(banout, proto);
 
   if (string_length != string2_length)
-    return 0;
+    return false;
 
   return memcmp(string, string2, string2_length) == 0;
 }
 
 /***************************************************************************
  ***************************************************************************/
-unsigned banout_is_contains(const struct BannerOutput *banout, unsigned proto,
-                            const char *string) {
+bool banout_is_contains(const struct BannerOutput *banout, unsigned proto,
+                        const char *string) {
 
   const unsigned char *string2;
   size_t string_length;
@@ -144,19 +145,19 @@ unsigned banout_is_contains(const struct BannerOutput *banout, unsigned proto,
     return string == NULL;
 
   if (string == NULL)
-    return 0;
+    return false;
 
   string_length = strlen(string);
   string2_length = banout_string_length(banout, proto);
 
   if (string_length > string2_length)
-    return 0;
+    return false;
 
   for (i = 0; i < string2_length - string_length + 1; i++) {
     if (memcmp(string, string2 + i, string_length) == 0)
-      return 1;
+      return true;
   }
-  return 0;
+  return false;
 }
 
 /***************************************************************************
@@ -203,6 +204,7 @@ void banout_append_char(struct BannerOutput *banout, unsigned proto, int c) {
  ***************************************************************************/
 void banout_append_hexint(struct BannerOutput *banout, unsigned proto,
                           unsigned long long number, int digits) {
+
   if (digits == 0) {
     for (digits = 16; digits > 0; digits--)
       if (number >> ((digits - 1) * 4) & 0xF)
@@ -273,6 +275,7 @@ static struct BannerOutput *banout_new_proto(struct BannerOutput *banout,
  ***************************************************************************/
 static struct BannerOutput *banout_expand(struct BannerOutput *banout,
                                           struct BannerOutput *p) {
+
   struct BannerOutput *n;
   size_t size_n;
 

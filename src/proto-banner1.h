@@ -192,6 +192,7 @@ struct SMBSTUFF {
   unsigned is_printed_ver : 1;
   unsigned is_printed_guid : 1;
   unsigned is_printed_time : 1;
+  unsigned is_printed_mech_types : 1;
   unsigned nbt_length;
   unsigned nbt_err;
 
@@ -299,7 +300,7 @@ struct ProtocolParserStream {
   enum ApplicationProtocol proto;
   bool is_dynamic;
 
-  const void *hello;
+  void *hello;
   size_t hello_length;
   unsigned ctrl_flags;
   int (*selftest)(void);

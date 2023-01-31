@@ -220,7 +220,7 @@ static const unsigned char *null_PCAP_NEXT(pcap_t *p, struct pcap_pkthdr *h) {
 }
 
 static int null_PCAP_NEXT_EX(pcap_t *p, struct pcap_pkthdr **h,
-                             const unsigned char **data) {
+                             unsigned char **data) {
 #ifdef STATICPCAP
   return pcap_next_ex(p, h, data);
 #endif

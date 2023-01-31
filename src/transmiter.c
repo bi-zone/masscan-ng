@@ -92,7 +92,7 @@ void transmit_thread(void *v) /*aka. scanning_thread() */ {
 
   struct ThreadPair *parms = (struct ThreadPair *)v;
   uint64_t i, start, end;
-  const struct Masscan *masscan = parms->masscan;
+  struct Masscan *masscan = parms->masscan;
   uint64_t retries = masscan->retries;
   uint64_t rate;
   unsigned r = (unsigned)retries + 1;

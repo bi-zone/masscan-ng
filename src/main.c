@@ -612,6 +612,7 @@ int main(int argc, char *argv[]) {
   /* Init some protocol parser data structures */
   snmp_init();
   x509_init();
+  spnego_init();
 
   /* Apply excludes. People ask us not to scan them, so we maintain a list
    * of their ranges, and when doing wide scans, add the exclude list to
@@ -741,12 +742,10 @@ int main(int argc, char *argv[]) {
 
   case Operation_Echo:
     masscan_echo(masscan, stdout, false);
-    exit(0);
     break;
 
   case Operation_EchoAll:
     masscan_echo(masscan, stdout, true);
-    exit(0);
     break;
 
   case Operation_Selftest:

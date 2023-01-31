@@ -52,7 +52,6 @@ static int parse_state_machine(struct Output *out, const unsigned char *px,
         LOG(LEVEL_ERROR, "redis: unexpected data: %.*s\n", (int)(length - i),
             px + i);
         exit(1);
-        break;
       }
       break;
     case NUMBER:

@@ -95,7 +95,7 @@ int rawsock_is_adapter_names_equal(const char *lhs, const char *rhs);
  * cases, like when shutting down. */
 void rawsock_flush(struct Adapter *adapter);
 
-int rawsock_send_packet(struct Adapter *adapter, const unsigned char *packet,
+int rawsock_send_packet(struct Adapter *adapter, unsigned char *packet,
                         unsigned length, unsigned flush);
 
 /**
@@ -120,7 +120,7 @@ int rawsock_send_packet(struct Adapter *adapter, const unsigned char *packet,
  */
 int rawsock_recv_packet(struct Adapter *adapter, unsigned *length,
                         unsigned *secs, unsigned *usecs,
-                        const unsigned char **packet);
+                        unsigned char **packet);
 
 /* Optimization functions to tell the underlying network stack
  * to not capture the packets we transmit. Most of the time, Ethernet

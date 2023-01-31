@@ -126,7 +126,7 @@ uint64_t rangelist_count(const struct RangeList *targets);
  * @return
  *      an IP address or port corresponding to this index.
  */
-unsigned rangelist_pick(const struct RangeList *targets, uint64_t i);
+unsigned rangelist_pick(struct RangeList *targets, uint64_t i);
 
 /**
  * Given a string like "80,8080,20-25,U:161", parse it into a structure
@@ -149,36 +149,26 @@ unsigned rangelist_pick(const struct RangeList *targets, uint64_t i);
 const char *rangelist_parse_ports(struct RangeList *ports, const char *string,
                                   unsigned *is_error, unsigned proto_offset);
 
-/**
- * Remove all the ranges in the range list.
- */
+/* Remove all the ranges in the range list. */
 void rangelist_remove_all(struct RangeList *list);
 
-/**
- * Merge two range lists
- */
+/* Merge two range lists */
 void rangelist_merge(struct RangeList *list1, const struct RangeList *list2);
 
-/**
- * Optimizes the target list, so that when we call "rangelist_pick()"
+/* Optimizes the target list, so that when we call "rangelist_pick()"
  * from an index, it runs faster. It currently configures this for
  * a binary-search, though in the future some more efficient
- * algorithm may be chosen.
- */
+ * algorithm may be chosen. */
 void rangelist_optimize(struct RangeList *targets);
 
-/**
- * Sorts the list of target. We maintain the list of targets in sorted
+/* Sorts the list of target. We maintain the list of targets in sorted
  * order internally even though we scan the targets in random order
- * externally.
- */
+ * externally. */
 void rangelist_sort(struct RangeList *targets);
 
-/**
- * Does a regression test of this module
+/* Does a regression test of this module
  * @return
- *      0 if the regression test succeeds, or a positive value on failure
- */
+ *      0 if the regression test succeeds, or a positive value on failure */
 int ranges_selftest(void);
 
 #endif

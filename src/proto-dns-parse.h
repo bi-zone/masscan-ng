@@ -2,7 +2,7 @@
 #define PROTO_DNS_PARSE_H
 
 struct DomainPointer {
-  const unsigned char *name;
+  unsigned char *name;
   size_t length;
   size_t max_length;
 };

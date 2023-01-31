@@ -5,7 +5,7 @@ struct Output;
 struct PreprocessedInfo;
 
 /* For sending TCP requests and parsing TCP responses. */
-extern const struct ProtocolParserStream banner_memcached;
+extern struct ProtocolParserStream banner_memcached;
 
 /* For parsing UDP responses */
 unsigned memcached_udp_parse(struct Banner1 *banner1, struct Output *out,

@@ -408,6 +408,12 @@
     <ClCompile Include="..\src\stack-if.c">
       <Filter>Source Files\stack</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\proto-spnego.c">
+      <Filter>Source Files\proto</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\proto-asn1.c">
+      <Filter>Source Files\proto</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\src\proto-arp.h">
@@ -715,6 +721,12 @@
     </ClInclude>
     <ClInclude Include="..\src\apple-barrier.h">
       <Filter>Source Files\pixie</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\proto-spnego.h">
+      <Filter>Source Files\proto</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\proto-asn1.h">
+      <Filter>Source Files\proto</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

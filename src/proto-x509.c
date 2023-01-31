@@ -90,7 +90,6 @@ TBSCertificate  ::=  SEQUENCE  {
 #include "masscan-app.h"
 #include "proto-banner1.h"
 #include "proto-banout.h"
-#include "proto-spnego.h"
 #include "smack.h"
 #include "util-cross.h"
 #include <assert.h>
@@ -109,7 +108,7 @@ TBSCertificate  ::=  SEQUENCE  {
  * to build the Aho-Corasick state-machine, which the main state-machine
  * will use to parse these object-ids.
  ****************************************************************************/
-static struct SMACK *global_mib;
+static struct SMACK *smack_ssl_oids;
 
 /****************************************************************************
  * Currently, the only field we extract is the "Common Name".
@@ -119,31 +118,11 @@ enum {
   Subject_Common,
 };
 
-/****************************************************************************
- * See "global_mib" above.
- ****************************************************************************/
-static struct ObjectIdentifer {
+static struct SslOid {
   const char *oid;
   const char *name;
   int id;
-} mib[] = {
-    {"43.1006.51.341332", "selftest"}, /* for regression test */
-    {"43", "iso.org"},
-    {"43.6", "dod"},
-    {"43.6.1", "inet"},
-    {"43.6.1.2", "mgmt"},
-    {"43.6.1.2.1", "mib2"},
-    {"43.6.1.2.1.", "sys"},
-    {"43.6.1.2.1.1.1", "sysDescr"},
-    {"43.6.1.2.1.1.2", "sysObjectID"},
-    {"43.6.1.2.1.1.3", "sysUpTime"},
-    {"43.6.1.2.1.1.4", "sysContact"},
-    {"43.6.1.2.1.1.5", "sysName"},
-    {"43.6.1.2.1.1.6", "sysLocation"},
-    {"43.6.1.2.1.1.7", "sysServices"},
-    {"43.6.1.4", "priv"},
-    {"43.6.1.4.1", "enterprise"},
-    {"43.6.1.4.1.2001", "okidata"},
+} ssl_oids[] = {
     {"42", "1.2"},
     {"42.840", "1.2.840"},
     {"42.840.52", "0"},
@@ -171,72 +150,7 @@ static struct ObjectIdentifer {
 };
 
 /****************************************************************************
- * Used in converting text object-ids into their binary form.
- * @see convert_oid()
- ****************************************************************************/
-static unsigned id_prefix_count(unsigned id) {
-#define TWO_BYTE ((unsigned long long)(~0) << 7)
-#define THREE_BYTE ((unsigned long long)(~0) << 14)
-#define FOUR_BYTE ((unsigned long long)(~0) << 21)
-#define FIVE_BYTE ((unsigned long long)(~0) << 28)
-
-  if (id & FIVE_BYTE)
-    return 4;
-  if (id & FOUR_BYTE)
-    return 3;
-  if (id & THREE_BYTE)
-    return 2;
-  if (id & TWO_BYTE)
-    return 1;
-  return 0;
-}
-
-/****************************************************************************
- * Convert text OID to binary. This is used when building a Aho-Corasick
- * table for matching object-identifiers: we type the object-ids in the
- * source-code in human-readable format, but must compile them to binary
- * pattenrs to match within the X.509 certificates.
- * @see x509_init()
- ****************************************************************************/
-static size_t convert_oid(unsigned char *dst, size_t sizeof_dst,
-                          const char *src) {
-  size_t offset = 0;
-
-  /* 'for all text characters' */
-  while (*src) {
-    const char *next_src;
-    unsigned id;
-    unsigned count;
-    unsigned i;
-
-    /* skip to next number */
-    while (*src == '.')
-      src++;
-
-    /* parse integer */
-    id = (unsigned)strtoul(src, (char **)&next_src, 0);
-    if (src == next_src)
-      break; /* invalid integer, programming error */
-    else
-      src = next_src;
-
-    /* find length of the integer */
-    count = id_prefix_count(id);
-
-    /* add binary integer to pattern */
-    for (i = count; i > 0; i--) {
-      if (offset < sizeof_dst)
-        dst[offset++] = ((id >> (7 * i)) & 0x7F) | 0x80;
-    }
-    if (offset < sizeof_dst)
-      dst[offset++] = (id & 0x7F);
-  }
-
-  return offset;
-}
-
-/****************************************************************************
- * We need to initialize the OID/MIB parser
+ * We need to initialize the OID parser
  * This should be called on program startup.
  * This is so that we can show short names, like "sysName", rather than
  * the entire OID.
@@ -246,155 +160,23 @@ void x509_init(void) {
 
   /* We use an Aho-Corasick pattern matcher for this. Not necessarily
    * the most efficient, but also not bad */
-  global_mib = smack_create("ssl-oids", 0);
+  smack_ssl_oids = smack_create("ssl-oids", 0);
 
   /* We just go through the table of OIDs and add them all one by
    * one */
-  for (i = 0; mib[i].name; i++) {
+  for (i = 0; ssl_oids[i].name; i++) {
     unsigned char pattern[256];
     size_t len;
 
-    len = convert_oid(pattern, sizeof(pattern), mib[i].oid);
-    smack_add_pattern(global_mib, pattern, len, i,
+    len = convert_oid(pattern, sizeof(pattern), ssl_oids[i].oid);
+    smack_add_pattern(smack_ssl_oids, pattern, len, i,
                       SMACK_ANCHOR_BEGIN | SMACK_SNMP_HACK);
   }
 
   /* Now that we've added all the OIDs, we need to compile this into
    * an efficientdata structure. Later, when we get packets, we'll
    * use this for searching */
-  smack_compile(global_mib);
-}
-
-/****************************************************************************
- * Since ASN.1 contains nested structures, each with their own length field,
- * we must maintain a small stack as we parse down the structure. Every time
- * we enter a field, this function "pushes" the ASN.1 "length" field onto
- * the stack. When we are done parsing the current field, we'll pop the
- * length back off the stack, and subtract from it the number of bytes
- * we've parsed.
- *
- * @param x
- *      The X.509 certificate parsing structure.
- * @param next_state
- *      Tells the parser the next field we'll be parsing after this field
- *      at the same level of the nested ASN.1 structure, or nothing if
- *      there are no more fields.
- * @param remaining
- *      The 'length' field. We call it 'remaining' instead of 'length'
- *      because as more bytes arrive, we decrement the length field until
- *      it reaches zero. Thus, at any point of time, it doesn't represent
- *      the length of the current ASN.1 field, but the remaining-length.
- ****************************************************************************/
-static void ASN1_push(struct CertDecode *x, unsigned next_state,
-                      uint64_t remaining) {
-  static const size_t STACK_DEPTH = ARRAY_SIZE(x->stack.remainings);
-
-  /* X.509 certificates can't be more than 64k in size. Therefore, to
-   * conserve space (as we must store the state for millions of TCP
-   * connections), we use the smallest number possible for the length,
-   * meaning a 16-bit 'unsigned short'. If the certificate has a larger
-   * length field, we need to reject it. */
-  if ((remaining >> 16) != 0) {
-    LOG(LEVEL_WARNING, "ASN.1 length field too big\n");
-    x->state = 0xFFFFFFFF;
-    return;
-  }
-
-  /* Make sure we don't recurse too deep, past the end of the stack. Note
-   * that this condition checks a PRGRAMMING error not an INPUT error,
-   * because we skip over fields we don't care about, and don't recurse
-   * into them even if they have many levels deep */
-  if (x->stack.depth >= STACK_DEPTH) {
-    LOG(LEVEL_WARNING, "ASN.1 recursion too deep\n");
-    x->state = 0xFFFFFFFF;
-    return;
-  }
-
-  /* Subtract this length from it's parent.
-   *
-   *[ASN1-CHILD-OVERFLOW]
-   * It is here that we deal with the classic ASN.1 parsing problem in
-   * which the child object claims a bigger length than its parent
-   * object. We could shrink the length field to fit, then continue
-   * parsing, but instead we choose to instead cease parsing the certificate.
-   * Note that this property is recursive: I don't need to redo the check
-   * all the way up the stack, because I know my parent's length does
-   * not exceed my grandparent's length.
-   * I know certificates exist that trigger this error -- I need to track
-   * them down and figure out why.
-   */
-  if (x->stack.depth) {
-    if (remaining > x->stack.remainings[0]) {
-      LOG(LEVEL_INFO, "ASN.1 inner object bigger than container [%u, %u]\n",
-          next_state, x->stack.states[0]);
-      x->state = 0xFFFFFFFF;
-      return;
-    }
-    x->stack.remainings[0] =
-        (unsigned short)(x->stack.remainings[0] - remaining);
-  }
-
-  /* Since 'remainings[0]' always represents the top of the stack, we
-   * move all the bytes down one during the push operation. I suppose this
-   * is more expensive than doing it the other way, where something
-   * like "raminings[stack.depth]" represents the top of the stack,
-   * meaning no moves are necessary, but I prefer the cleanliness of the
-   * code using [0] index instead */
-  memmove(&x->stack.remainings[1], &x->stack.remainings[0],
-          x->stack.depth * sizeof(x->stack.remainings[0]));
-  x->stack.remainings[0] = (unsigned short)remaining;
-
-  memmove(&x->stack.states[1], &x->stack.states[0],
-          x->stack.depth * sizeof(x->stack.states[0]));
-  x->stack.states[0] = next_state;
-
-  /* increment the count by one and exit */
-  x->stack.depth++;
-}
-
-/****************************************************************************
- * This is the corresponding 'pop' operation to the ASN1_push() operation.
- * See that function for more details.
- * @see ASN1_push()
- ****************************************************************************/
-static unsigned ASN1_pop(struct CertDecode *x) {
-  unsigned next_state;
-  next_state = x->stack.states[0];
-  x->stack.depth--;
-  memmove(&x->stack.remainings[0], &x->stack.remainings[1],
-          x->stack.depth * sizeof(x->stack.remainings[0]));
-  memmove(&x->stack.states[0], &x->stack.states[1],
-          x->stack.depth * sizeof(x->stack.states[0]));
-  return next_state;
-}
-
-/****************************************************************************
- * Called to skip the remainder of the ASN.1 field
- * @return
- *      1 if we've reached the end of the field
- *      0 otherwise
- ****************************************************************************/
-static unsigned ASN1_skip(struct CertDecode *x, size_t *i, size_t length) {
-
-  size_t len;
-
-  if (x->stack.remainings[0] == 0)
-    return 1;
-
-  /* bytes remaining in packet */
-  len = length - (*i) - 1;
-
-  /* bytes remaining in field */
-  if (len > x->stack.remainings[0])
-    len = (size_t)x->stack.remainings[0];
-
-  /* increment 'offset' by this length */
-  (*i) += len;
-
-  /* decrement 'remaining' by this length */
-  x->stack.remainings[0] = (unsigned short)(x->stack.remainings[0] - len);
-
-  return x->stack.remainings[0] == 0;
+  smack_compile(smack_ssl_oids);
 }
 
 /****************************************************************************
@@ -524,7 +306,7 @@ enum X509state {
   ENC_CONTENTS,
 
   PADDING = 254,
-  ERROR = 0xFFFFFFFF
+  ERROR = STATE_ASN1_ERROR
 };
 
 /****************************************************************************
@@ -591,7 +373,7 @@ static unsigned kludge_next(unsigned state) {
 void x509_decode(struct CertDecode *x, const unsigned char *px, size_t length,
                  struct BannerOutput *banout) {
   size_t i;
-  enum X509state state = x->state;
+  enum X509state state = x->asn1.state;
 
   /* 'for all bytes in the current fragment ...'
    *   'process that byte, causing a state-transition ' */
@@ -603,16 +385,16 @@ void x509_decode(struct CertDecode *x, const unsigned char *px, size_t length,
      * reach the end of several levels simultaneously, we may need to
      * pop several levels at once
      */
-    while (x->stack.remainings[0] == 0) {
-      if (x->stack.depth == 0)
+    while (x->asn1.stack.remainings[0] == 0) {
+      if (x->asn1.stack.depth == 0)
         return;
-      state = ASN1_pop(x);
+      state = ASN1_pop(&x->asn1);
     }
 
     /*
      * Decrement the current 'remaining' length field.
      */
-    x->stack.remainings[0]--;
+    x->asn1.stack.remainings[0]--;
 
     /*
      * Jump to the current current state
@@ -686,13 +468,13 @@ void x509_decode(struct CertDecode *x, const unsigned char *px, size_t length,
         state = ERROR;
         continue;
       }
-      x->u.num = 0;
+      x->asn1.u.num = 0;
       state++;
       break;
     case ISSUERNAME_CONTENTS:
       if (x->is_capture_issuer) {
         banout_append(banout, PROTO_SSL3, px + i, 1);
-        if (x->stack.remainings[0] == 0)
+        if (x->asn1.stack.remainings[0] == 0)
           banout_append(banout, PROTO_SSL3, "]", 1);
       }
       break;
@@ -700,15 +482,15 @@ void x509_decode(struct CertDecode *x, const unsigned char *px, size_t length,
     case EXT_DNSNAME_CONTENTS:
       if (x->is_capture_subject) {
         banout_append(banout, PROTO_SSL3, px + i, 1);
-        if (x->stack.remainings[0] == 0)
+        if (x->asn1.stack.remainings[0] == 0)
           banout_append(banout, PROTO_SSL3, "]", 1);
       } else if (x->subject.type == Subject_Common)
         banout_append(banout, PROTO_SSL3, px + i, 1);
       break;
     case VERSION_CONTENTS:
-      x->u.num <<= 8;
-      x->u.num |= px[i];
-      if (x->stack.remainings[0] == 0)
+      x->asn1.u.num <<= 8;
+      x->asn1.u.num |= px[i];
+      if (x->asn1.stack.remainings[0] == 0)
         state = PADDING;
       break;
     case ISSUERID_CONTENTS0:
@@ -716,8 +498,9 @@ void x509_decode(struct CertDecode *x, const unsigned char *px, size_t length,
     case EXTENSION_ID_CONTENTS0:
     case ALGOID1_CONTENTS0:
     case SIG1_CONTENTS0:
-      memset(&x->u.oid, 0, sizeof(x->u.oid));
+      memset(&x->asn1.u.oid, 0, sizeof(x->asn1.u.oid));
       state++;
+      /* fall through */
     case ISSUERID_CONTENTS1:
     case SUBJECTID_CONTENTS1:
     case EXTENSION_ID_CONTENTS1:
@@ -725,31 +508,23 @@ void x509_decode(struct CertDecode *x, const unsigned char *px, size_t length,
     case SIG1_CONTENTS1: {
       size_t id;
       size_t offset = i;
-      size_t oid_state = x->u.oid.state;
+      size_t oid_state = x->asn1.u.oid.state;
 
       /* First, look it up */
-      id = smack_search_next(global_mib, &oid_state, px, &offset, offset + 1);
-      x->u.oid.state = (unsigned short)oid_state;
+      id = smack_search_next(smack_ssl_oids, &oid_state, px, &offset,
+                             offset + 1);
+      x->asn1.u.oid.state = (unsigned short)oid_state;
 
       /* Do the multibyte numbers */
-      x->u.oid.num <<= 7;
-      x->u.oid.num |= px[i] & 0x7F;
+      x->asn1.u.oid.num <<= 7;
+      x->asn1.u.oid.num |= px[i] & 0x7F;
 
       if (px[i] & 0x80) {
         /* This is a multibyte number, don't do anything at
          * this stage */
-        ;
       } else {
-        if (id == SMACK_NOT_FOUND) {
-          if (x->u.oid.last_id) {
-            // printf("%s", mib[x->u.oid.last_id].name);
-            x->u.oid.last_id = 0;
-          }
-          // printf(".%u", (unsigned)x->u.oid.num);
-        } else {
-          // printf("%s [%u]\n", mib[x->u.oid.last_id].name,
-          // mib[x->u.oid.last_id].id);
-          x->subject.type = mib[id].id;
+        if (id != SMACK_NOT_FOUND) {
+          x->subject.type = ssl_oids[id].id;
           if (x->subject.type == Subject_Common &&
               state == SUBJECTID_CONTENTS1) {
             if (x->count <= 1) {
@@ -762,24 +537,18 @@ void x509_decode(struct CertDecode *x, const unsigned char *px, size_t length,
           // if (x->subject.type == Subject_Common
           //                     && state == EXTENSION_ID_CONTENTS1)
           //     ; //banout_append(banout, PROTO_SSL3, ", ", 2);
-          x->u.oid.last_id = (unsigned char)id;
         }
-        x->u.oid.num = 0;
+        x->asn1.u.oid.num = 0;
       }
-      if (x->stack.remainings[0] == 0) {
-        if (x->u.oid.last_id) {
-          // printf("%s", mib[x->u.oid.last_id].name);
-          x->u.oid.last_id = 0;
-        }
+      if (x->asn1.stack.remainings[0] == 0) {
         state = PADDING;
-        // printf("\n");
       }
     } break;
     case SERIAL_CONTENTS:
-      x->stack.states[0] = (unsigned int)state + 1;
-      x->u.num <<= 8;
-      x->u.num |= px[i];
-      if (x->stack.remainings[0] == 0)
+      x->asn1.stack.states[0] = (unsigned int)state + 1;
+      x->asn1.u.num <<= 8;
+      x->asn1.u.num |= px[i];
+      if (x->asn1.stack.remainings[0] == 0)
         state = PADDING;
       break;
 
@@ -893,17 +662,17 @@ void x509_decode(struct CertDecode *x, const unsigned char *px, size_t length,
        * field, switches to the corresponding xxx_LENLEN state
        */
       if (px[i] & 0x80) {
-        x->u.tag.length_of_length = px[i] & 0x7F;
-        x->u.tag.remaining = 0;
+        x->asn1.u.tag.length_of_length = px[i] & 0x7F;
+        x->asn1.u.tag.remaining = 0;
         state++;
-        break;
       } else {
-        x->u.tag.remaining = px[i];
-        ASN1_push(x, kludge_next((unsigned int)state), x->u.tag.remaining);
+        x->asn1.u.tag.remaining = px[i];
+        ASN1_push(&x->asn1, kludge_next((unsigned int)state),
+                  x->asn1.u.tag.remaining);
         state += 2;
-        memset(&x->u, 0, sizeof(x->u));
-        break;
+        memset(&x->asn1.u, 0, sizeof(x->asn1.u));
       }
+      break;
 
     case TAG0_LENLEN:
     case TAG1_LENLEN:
@@ -944,96 +713,97 @@ void x509_decode(struct CertDecode *x, const unsigned char *px, size_t length,
       /* [ASN1-DER-LENGTH]
        * Check for strict DER compliance, which says that there should
        * be no leading zero bytes */
-      if (x->u.tag.remaining == 0 && px[i] == 0)
-        x->is_der_failure = 1;
+      if (x->asn1.u.tag.remaining == 0 && px[i] == 0)
+        x->asn1.is_der_failure = 1;
 
       /* parse this byte */
-      x->u.tag.remaining = (x->u.tag.remaining) << 8 | px[i];
-      x->u.tag.length_of_length--;
+      x->asn1.u.tag.remaining = (x->asn1.u.tag.remaining) << 8 | px[i];
+      x->asn1.u.tag.length_of_length--;
 
       /* If we aren't finished yet, loop around and grab the next */
-      if (x->u.tag.length_of_length)
-        continue;
+      if (x->asn1.u.tag.length_of_length)
+        break;
 
       /* [ASN1-DER-LENGTH]
        * Check for strict DER compliance, which says that for lengths
        * 127 and below, we need only 1 byte to encode it, not many */
-      if (x->u.tag.remaining < 128)
-        x->is_der_failure = 1;
+      if (x->asn1.u.tag.remaining < 128)
+        x->asn1.is_der_failure = 1;
 
       /*
        * We have finished parsing the tag-length fields, and are now
        * ready to parse the 'value'. Push the current state on the
        * stack, then descend into the child field.
        */
-      ASN1_push(x, kludge_next((unsigned int)state - 1), x->u.tag.remaining);
+      ASN1_push(&x->asn1, kludge_next((unsigned int)state - 1),
+                x->asn1.u.tag.remaining);
       state++;
-      memset(&x->u, 0, sizeof(x->u));
+      memset(&x->asn1.u, 0, sizeof(x->asn1.u));
       break;
 
     case VNBEFORE_CONTENTS:
     case VNAFTER_CONTENTS:
-      switch (x->u.timestamp.state) {
+      switch (x->asn1.u.timestamp.state) {
       case 0:
-        x->u.timestamp.year = (px[i] - '0') * 10;
-        x->u.timestamp.state++;
+        x->asn1.u.timestamp.year = (px[i] - '0') * 10;
+        x->asn1.u.timestamp.state++;
         break;
       case 1:
-        x->u.timestamp.year += (px[i] - '0');
-        x->u.timestamp.state++;
+        x->asn1.u.timestamp.year += (px[i] - '0');
+        x->asn1.u.timestamp.state++;
         break;
       case 2:
-        x->u.timestamp.month = (px[i] - '0') * 10;
-        x->u.timestamp.state++;
+        x->asn1.u.timestamp.month = (px[i] - '0') * 10;
+        x->asn1.u.timestamp.state++;
         break;
       case 3:
-        x->u.timestamp.month += (px[i] - '0');
-        x->u.timestamp.state++;
+        x->asn1.u.timestamp.month += (px[i] - '0');
+        x->asn1.u.timestamp.state++;
         break;
       case 4:
-        x->u.timestamp.day = (px[i] - '0') * 10;
-        x->u.timestamp.state++;
+        x->asn1.u.timestamp.day = (px[i] - '0') * 10;
+        x->asn1.u.timestamp.state++;
         break;
       case 5:
-        x->u.timestamp.day += (px[i] - '0');
-        x->u.timestamp.state++;
+        x->asn1.u.timestamp.day += (px[i] - '0');
+        x->asn1.u.timestamp.state++;
         break;
       case 6:
-        x->u.timestamp.hour = (px[i] - '0') * 10;
-        x->u.timestamp.state++;
+        x->asn1.u.timestamp.hour = (px[i] - '0') * 10;
+        x->asn1.u.timestamp.state++;
         break;
       case 7:
-        x->u.timestamp.hour += (px[i] - '0');
-        x->u.timestamp.state++;
+        x->asn1.u.timestamp.hour += (px[i] - '0');
+        x->asn1.u.timestamp.state++;
         break;
       case 8:
-        x->u.timestamp.minute = (px[i] - '0') * 10;
-        x->u.timestamp.state++;
+        x->asn1.u.timestamp.minute = (px[i] - '0') * 10;
+        x->asn1.u.timestamp.state++;
         break;
       case 9:
-        x->u.timestamp.minute += (px[i] - '0');
-        x->u.timestamp.state++;
+        x->asn1.u.timestamp.minute += (px[i] - '0');
+        x->asn1.u.timestamp.state++;
         break;
       case 10:
-        x->u.timestamp.second = (px[i] - '0') * 10;
-        x->u.timestamp.state++;
+        x->asn1.u.timestamp.second = (px[i] - '0') * 10;
+        x->asn1.u.timestamp.state++;
         break;
       case 11:
-        x->u.timestamp.second += (px[i] - '0');
-        x->u.timestamp.state++;
+        x->asn1.u.timestamp.second += (px[i] - '0');
+        x->asn1.u.timestamp.state++;
         {
           struct tm tm;
           time_t now;
 
-          tm.tm_hour = x->u.timestamp.hour;
+          tm.tm_hour = x->asn1.u.timestamp.hour;
           tm.tm_isdst = 0;
-          tm.tm_mday = x->u.timestamp.day;
-          tm.tm_min = x->u.timestamp.minute;
-          tm.tm_mon = x->u.timestamp.month - 1;
-          tm.tm_sec = x->u.timestamp.second;
+          tm.tm_mday = x->asn1.u.timestamp.day;
+          tm.tm_min = x->asn1.u.timestamp.minute;
+          tm.tm_mon = x->asn1.u.timestamp.month - 1;
+          tm.tm_sec = x->asn1.u.timestamp.second;
           tm.tm_wday = 0;
           tm.tm_yday = 0;
-          tm.tm_year = 100 + x->u.timestamp.year;
+          tm.tm_year = 100 + x->asn1.u.timestamp.year;
 
           now = mktime(&tm);
 
@@ -1073,314 +843,14 @@ void x509_decode(struct CertDecode *x, const unsigned char *px, size_t length,
     case ENC_CONTENTS:
     case ERROR:
     default:
-      ASN1_skip(x, &i, length);
+      ASN1_skip(&x->asn1, &i, length);
       break;
     }
   }
 
   /* Save the state variable and exit */
-  if (x->state != ERROR)
-    x->state = (unsigned int)state;
-}
-void spnego_decode(struct SpnegoDecode *spnego, const unsigned char *px,
-                   size_t length, struct BannerOutput *banout) {
-  struct CertDecode *x = spnego->x509;
-  size_t i;
-
-  enum spnegoState {
-    /*NegotiationToken ::= CHOICE {
-        negTokenInit    [0] NegTokenInit,
-        negTokenResp    [1] NegTokenResp
-    }*/
-    NegotiationToken_tag,
-    len,
-    lenlen,
-
-    NegTokenInit_tag,
-    NegTokenInit_choice,
-    NegTokenResp_tag,
-    NegTokenResp_choice,
-    mechType_tag,
-
-    negState_tag,
-    supportedMech_tag,
-    responseToken_tag,
-    mechListMIC_tag,
-
-    mechTypes_tag,
-    reqFlags_tag,
-    mechToken_tag,
-
-    mechToken_content,
-    responseToken_content,
-    mechToken_content2,
-    responseToken_content2,
-
-    UnknownContents,
-  };
-
-  enum spnegoState state = x->state;
-
-  /* 'for all bytes in the current fragment ...'
-   *   'process that byte, causing a state-transition ' */
-  for (i = 0; i < length; i++) {
-
-    /*
-     * If we've reached the end of the current field, then we need to
-     * pop up the stack and resume parsing the parent field. Since we
-     * reach the end of several levels simultaneously, we may need to
-     * pop several levels at once
-     */
-    while (x->stack.remainings[0] == 0) {
-      if (x->stack.depth == 0)
-        return;
-      state = ASN1_pop(x);
-    }
-
-    /*
-     * Decrement the current 'remaining' length field.
-     */
-    x->stack.remainings[0]--;
-
-    /*
-     * Jump to the current current state
-     */
-    switch (state) {
-    case NegotiationToken_tag:
-      x->brother_state = UnknownContents;
-      switch (px[i]) {
-      case 0xa0:
-        x->child_state = NegTokenInit_tag;
-        break;
-      case 0xa1:
-        x->child_state = NegTokenResp_tag;
-        break;
-      case 0x60:
-        x->child_state = mechType_tag;
-        break;
-      default:
-        x->child_state = UnknownContents;
-        break;
-      }
-      state = len;
-      break;
-
-    case NegTokenResp_choice:
-      /*
-       NegTokenResp ::= SEQUENCE {
-       negState       [0] ENUMERATED {
-          accept-completed    (0),
-          accept-incomplete   (1),
-          reject              (2),
-          request-mic         (3)
-          }                                 OPTIONAL,
-       -- REQUIRED in the first reply from the target
-       supportedMech   [1] MechType      OPTIONAL,
-       -- present only in the first reply from the target
-       responseToken   [2] OCTET STRING  OPTIONAL,
-       mechListMIC     [3] OCTET STRING  OPTIONAL,
-       ...
-       }*/
-      x->brother_state = NegTokenResp_choice;
-      switch (px[i]) {
-      case 0xa0:
-        x->child_state = negState_tag;
-        break;
-      case 0xa1:
-        x->child_state = supportedMech_tag;
-        break;
-      case 0xa2:
-        x->child_state = responseToken_tag;
-        break;
-      case 0xa3:
-        x->child_state = mechListMIC_tag;
-        break;
-      default:
-        x->child_state = UnknownContents;
-        break;
-      }
-      state = len;
-      break;
-
-    case NegTokenResp_tag:
-      if (px[i] != 0x30) {
-        x->brother_state = UnknownContents;
-        x->child_state = UnknownContents;
-      } else {
-        x->brother_state = UnknownContents;
-        x->child_state = NegTokenResp_choice;
-      }
-      state = len;
-      break;
-
-    case NegTokenInit_choice:
-      /*
-       NegTokenInit ::= SEQUENCE {
-       mechTypes       [0] MechTypeList,
-       reqFlags        [1] ContextFlags  OPTIONAL,
-       -- inherited from RFC 2478 for backward compatibility,
-       -- RECOMMENDED to be left out
-       mechToken       [2] OCTET STRING  OPTIONAL,
-       mechListMIC     [3] OCTET STRING  OPTIONAL,
-       ...
-       }
-       }*/
-      x->brother_state = NegTokenInit_choice;
-      switch (px[i]) {
-      case 0xa0:
-        x->child_state = mechTypes_tag;
-        break;
-      case 0xa1:
-        x->child_state = reqFlags_tag;
-        break;
-      case 0xa2:
-        x->child_state = mechToken_tag;
-        break;
-      case 0xa3:
-        x->child_state = mechListMIC_tag;
-        break;
-      default:
-        x->child_state = UnknownContents;
-        break;
-      }
-      state = len;
-      break;
-
-    case NegTokenInit_tag:
-      if (px[i] != 0x30) {
-        x->brother_state = UnknownContents;
-        x->child_state = UnknownContents;
-      } else {
-        x->brother_state = UnknownContents;
-        x->child_state = NegTokenInit_choice;
-      }
-      state = len;
-      break;
-
-    case mechType_tag:
-      if (px[i] == 0x06) {
-        x->brother_state = NegotiationToken_tag;
-        x->child_state = UnknownContents;
-      } else {
-        x->brother_state = NegotiationToken_tag;
-        x->child_state = UnknownContents;
-      }
-      state = len;
-      break;
-
-    case negState_tag:
-    case supportedMech_tag:
-    case mechListMIC_tag:
-    case mechTypes_tag:
-    case reqFlags_tag:
-      x->brother_state = UnknownContents;
-      x->child_state = UnknownContents;
-      state = len;
-      break;
-
-    case responseToken_tag:
-      x->brother_state = UnknownContents;
-      x->child_state = responseToken_content;
-      state = len;
-      break;
-
-    case mechToken_tag:
-      x->brother_state = UnknownContents;
-      x->child_state = mechToken_content;
-      state = len;
-      break;
-
-    case mechToken_content:
-    case mechToken_content2:
-      break;
-
-      /************************************************************************
-       ************************************************************************
-       ************************************************************************
-       ************************************************************************
-       ************************************************************************
-       ************************************************************************
-       ************************************************************************
-       */
-    case responseToken_content:
-      ntlmssp_decode_init(&spnego->ntlmssp, (size_t)x->stack.remainings[0] + 1);
-      state = responseToken_content2;
-      /* fall through */
-    case responseToken_content2: {
-      size_t new_max = length - i;
-
-      if (new_max > (size_t)x->stack.remainings[0] + 1) {
-        new_max = (size_t)x->stack.remainings[0] + 1;
-      }
-
-      ntlmssp_decode(&spnego->ntlmssp, px + i, new_max, banout);
-
-      x->stack.remainings[0] -= (unsigned short)(new_max - 1);
-      if (x->stack.remainings[0] == 0) {
-        if (spnego->ntlmssp.buf)
-          free(spnego->ntlmssp.buf);
-      }
-    } break;
-
-    case len:
-      /* We do the same processing for all the various length fields.
-       * There are three possible length fields:
-       * 0x7F - for lengths 127 and below
-       * 0x81 XX - for lengths 127 to 255
-       * 0x82 XX XX - for length 256 to 65535
-       * This state processes the first byte, and if it's an extended
-       * field, switches to the corresponding xxx_LENLEN state
-       */
-      if (px[i] & 0x80) {
-        x->u.tag.length_of_length = px[i] & 0x7F;
-        x->u.tag.remaining = 0;
-        state = lenlen;
-        break;
-      } else {
-        x->u.tag.remaining = px[i];
-        ASN1_push(x, x->brother_state, x->u.tag.remaining);
-        state = x->child_state;
-        memset(&x->u, 0, sizeof(x->u));
-        break;
-      }
-      break;
-    case lenlen:
-      /* We process all multibyte lengths the same way in this
-       * state.
-       */
-
-      /* [ASN1-DER-LENGTH]
-       * Check for strict DER compliance, which says that there should
-       * be no leading zero bytes */
-      if (x->u.tag.remaining == 0 && px[i] == 0)
-        x->is_der_failure = 1;
-
-      /* parse this byte */
-      x->u.tag.remaining = (x->u.tag.remaining) << 8 | px[i];
-      x->u.tag.length_of_length--;
-
-      /* If we aren't finished yet, loop around and grab the next */
-      if (x->u.tag.length_of_length)
-        continue;
-
-      /* [ASN1-DER-LENGTH]
-       * Check for strict DER compliance, which says that for lengths
-       * 127 and below, we need only 1 byte to encode it, not many */
-      if (x->u.tag.remaining < 128)
-        x->is_der_failure = 1;
-
-      /*
-       * We have finished parsing the tag-length fields, and are now
-       * ready to parse the 'value'. Push the current state on the
-       * stack, then descend into the child field.
-       */
-      ASN1_push(x, x->brother_state, x->u.tag.remaining);
-      state = x->child_state;
-      memset(&x->u, 0, sizeof(x->u));
-      break;
-    default:;
-    }
-  }
+  if (x->asn1.state != ERROR)
+    x->asn1.state = (unsigned int)state;
 }
 
 /****************************************************************************
@@ -1392,10 +862,5 @@ void spnego_decode(struct SpnegoDecode *spnego, const unsigned char *px,
  ****************************************************************************/
 void x509_decode_init(struct CertDecode *x, size_t length) {
   memset(x, 0, sizeof(*x));
-  ASN1_push(x, 0xFFFFFFFF, length);
-}
-
-void spnego_decode_init(struct SpnegoDecode *x, size_t length) {
-  memset(x, 0, sizeof(*x));
-  ASN1_push(x->x509, 0xFFFFFFFF, length);
+  ASN1_push(&x->asn1, STATE_ASN1_ERROR, length);
 }

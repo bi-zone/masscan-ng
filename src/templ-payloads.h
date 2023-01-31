@@ -1,66 +1,55 @@
 #ifndef TEMPL_PAYLOADS_H
 #define TEMPL_PAYLOADS_H
+
+#include "util-cross.h"
 #include <stdint.h>
 #include <stdio.h>
+
 struct MassIP;
 
-/**
- * Regression test this module.
+/**  Regression test this module.
  * @return
- *      0 on success, or positive integer on failure.
- */
+ *      0 on success, or positive integer on failure. */
 int payloads_udp_selftest(void);
 
 /**
  * Create this module. Must be matched with the 'destroy()' function on exit
  */
 struct PayloadsUDP *payloads_udp_create(void);
-
 struct PayloadsUDP *payloads_oproto_create(void);
 
-/**
- * Free the resources of an object created with a matching call to
- * 'payloads_create()'
- */
+/* Free the resources of an object created with a matching call to
+ * 'payloads_create()' */
 void payloads_udp_destroy(struct PayloadsUDP *payloads);
 
-/**
- * Read payloads from an "nmap-payloads" formatted file. The caller is
+/* Read payloads from an "nmap-payloads" formatted file. The caller is
  * responsible for opening/closing the file, but should passing the
- * filename so that we can print helpful error messages.
- */
+ * filename so that we can print helpful error messages. */
 void payloads_udp_readfile(FILE *fp, const char *filename,
                            struct PayloadsUDP *payloads);
 
-/**
- * Read payloads from a libpcap formatted file.
- */
+/*Read payloads from a libpcap formatted file. */
 void payloads_read_pcap(const char *filename, struct PayloadsUDP *payloads,
                         struct PayloadsUDP *oproto_payloads);
 
-/**
- * Called to remove any payloads that aren't be used in the scan. This makes
- * lookups faster when generating packets.
- */
+/* Called to remove any payloads that aren't be used in the scan. This makes
+ * lookups faster when generating packets. */
 void payloads_udp_trim(struct PayloadsUDP *payloads,
                        const struct MassIP *targets);
 
 void payloads_oproto_trim(struct PayloadsUDP *payloads,
                           const struct MassIP *targets);
 
-/**
- * The port scanner creates a "cookie" for every packet that it sends, which
+/* The port scanner creates a "cookie" for every packet that it sends, which
  * will be a 64-bit value, whose low-order bits will be trimmed to fit whatever
  * size is available. For TCP, this becomes the 32-bit seqno of the SYN packet.
  * For UDP protocols, however, each application layer protocol will be
  * different. For example, SNMP can use a 32-bit transaction ID, whereas DNS
- * can use only a 16-bit transaction ID.
- */
+ * can use only a 16-bit transaction ID. */
 typedef unsigned (*SET_COOKIE)(unsigned char *px, size_t length,
                                uint64_t seqno);
 
-/**
- * Given a UDP port number, return the payload we have that is associated
+/* Given a UDP port number, return the payload we have that is associated
  * with that port number.
  * @param payloads
  *      A table full over payloads.
@@ -77,11 +66,10 @@ typedef unsigned (*SET_COOKIE)(unsigned char *px, size_t length,
  *      doesn't need to be recalculated for every packet.
  * @param set_cookie
  *      The returned function that will set the "cookie" field in the
- *      packet for each transmission
- */
-int payloads_udp_lookup(const struct PayloadsUDP *payloads, unsigned port,
-                        const unsigned char **px, size_t *length,
-                        unsigned *source_port, uint64_t *xsum,
-                        SET_COOKIE *set_cookie);
+ *      packet for each transmission */
+bool payloads_udp_lookup(const struct PayloadsUDP *payloads, unsigned port,
+                         const unsigned char **px, size_t *length,
+                         unsigned *source_port, uint64_t *xsum,
+                         SET_COOKIE *set_cookie);
 
 #endif

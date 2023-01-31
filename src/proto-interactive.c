@@ -31,17 +31,59 @@ void tcp_close(struct InteractiveData *more) {
  * This doesn't actually transmit right now. Instead, marks the payload as ready
  * to transmit, which will be transmitted later
  */
-void tcp_transmit(struct InteractiveData *more, const void *payload,
-                  size_t length, unsigned flags) {
-  assert(more != NULL);
-  assert(more->m_payload == NULL && more->m_length == 0);
-  assert(more->is_payload_dynamic == false);
-  more->m_payload = payload;
-  more->m_length = (unsigned)length;
+void tcp_transmit(struct InteractiveData *more, void *payload, size_t length,
+                  unsigned flags) {
 
-  if (flags & TCPTRAN_DYNAMIC) {
+  void *new_payload = NULL;
+  size_t new_length = 0;
+
+  assert(more != NULL);
+
+  if (payload == NULL || length == 0) {
+    if (payload != NULL && (flags & TCPTRAN_DYNAMIC)) {
+      free(payload);
+    }
+    return;
+  }
+
+  if (more->m_payload == NULL || more->m_length == 0) {
+    assert(more->m_payload == NULL && more->m_length == 0);
+    assert(more->is_payload_dynamic == false);
+    more->m_payload = payload;
+    more->m_length = (unsigned)length;
+    if (flags & TCPTRAN_DYNAMIC) {
+      more->is_payload_dynamic = true;
+    }
+    return;
+  }
+
+  new_length = (size_t)more->m_length + length;
+  if (more->is_payload_dynamic) {
+    new_payload = realloc((void *)more->m_payload, new_length);
+  } else {
+    new_payload = malloc(new_length);
+  }
+
+  if (new_payload == NULL) {
+    if (flags & TCPTRAN_DYNAMIC) {
+      free((void *)payload);
+    }
+    return;
+  }
+
+  if (!more->is_payload_dynamic) {
+    memcpy(new_payload, more->m_payload, (size_t)more->m_length);
     more->is_payload_dynamic = true;
   }
+  memcpy((char *)new_payload + (size_t)more->m_length, payload, length);
+
+  if (flags & TCPTRAN_DYNAMIC) {
+    free((void *)payload);
+  }
+
+  more->m_payload = new_payload;
+  more->m_length = (unsigned)new_length;
+  return;
 }
 
 void free_interactive_data(struct InteractiveData *more) {
@@ -54,36 +96,32 @@ void free_interactive_data(struct InteractiveData *more) {
 // append data more1 to more2 and save to more1
 void append_interactive_data(struct InteractiveData *more1,
                              struct InteractiveData *more2) {
-  void *new_payload = NULL;
-  size_t new_length = 0;
+  unsigned flags;
 
-  if (more2->m_payload == NULL || more2->m_length == 0) {
-    assert(more2->m_payload == NULL && more2->m_length == 0);
+  if (more1 == NULL) {
     return;
   }
 
-  if (more1->m_payload == NULL || more1->m_length == 0) {
-    assert(more1->m_payload == NULL && more1->m_length == 0);
-    memcpy(more1, more2, sizeof(struct InteractiveData));
-    memset(more2, 0, sizeof(struct InteractiveData));
-    return;
+  flags = 0;
+  if (more1->is_payload_dynamic) {
+    flags |= TCPTRAN_DYNAMIC;
   }
+  tcp_transmit(more2, more1->m_payload, more1->m_length, flags);
+  memset(more1, 0, sizeof(*more1));
 
-  new_length = (size_t)more1->m_length + (size_t)more2->m_length;
-  new_payload = malloc(new_length);
-  if (new_payload == NULL) {
-    return;
+  flags = 0;
+  if (more2->is_payload_dynamic) {
+    flags |= TCPTRAN_DYNAMIC;
   }
-  memcpy(new_payload, more2->m_payload, (size_t)more2->m_length);
-  memcpy((char *)new_payload + (size_t)more2->m_length, more1->m_payload,
-         (size_t)more1->m_length);
-  free_interactive_data(more1);
-  tcp_transmit(more1, new_payload, new_length, TCPTRAN_DYNAMIC);
+  tcp_transmit(more1, more2->m_payload, more2->m_length, flags);
+  memset(more2, 0, sizeof(*more2));
   return;
 }
 
+#ifndef __clang_analyzer__
 int interactive_data_selftest() {
 
+  int x = 0;
   void *data = NULL;
   struct InteractiveData more1 = {0};
   struct InteractiveData more2 = {0};
@@ -93,12 +131,9 @@ int interactive_data_selftest() {
   append_interactive_data(&more1, &more2);
   if (memcmp(more1.m_payload, "12345", 5) != 0 || more1.m_length != 5) {
     LOG(LEVEL_ERROR, "interactive_data: failed 0\n");
-    free_interactive_data(&more1);
-    free_interactive_data(&more2);
-    return 1;
+    x += 1;
   }
   free_interactive_data(&more1);
-  free_interactive_data(&more2);
 
   data = malloc(2);
   if (data == NULL) {
@@ -111,32 +146,24 @@ int interactive_data_selftest() {
   append_interactive_data(&more1, &more2);
   if (memcmp(more1.m_payload, "12345", 5) != 0 || more1.m_length != 5) {
     LOG(LEVEL_ERROR, "interactive_data: failed 1\n");
-    free_interactive_data(&more1);
-    free_interactive_data(&more2);
-    return 1;
+    x += 1;
   }
   free_interactive_data(&more1);
-  free_interactive_data(&more2);
 
-  tcp_transmit(&more1, "45", 2, 0);
   data = malloc(3);
   if (data == NULL) {
     LOG(LEVEL_ERROR, "Can't alloc\n");
-    free_interactive_data(&more1);
-    free_interactive_data(&more2);
     return 1;
   }
+  tcp_transmit(&more1, "45", 2, 0);
   memcpy(data, "123", 3);
   tcp_transmit(&more2, data, 3, TCPTRAN_DYNAMIC);
   append_interactive_data(&more1, &more2);
   if (memcmp(more1.m_payload, "12345", 5) != 0 || more1.m_length != 5) {
     LOG(LEVEL_ERROR, "interactive_data: failed 2\n");
-    free_interactive_data(&more1);
-    free_interactive_data(&more2);
-    return 1;
+    x += 1;
   }
   free_interactive_data(&more1);
-  free_interactive_data(&more2);
 
   data = malloc(2);
   if (data == NULL) {
@@ -146,65 +173,63 @@ int interactive_data_selftest() {
   memcpy(data, "45", 2);
   tcp_transmit(&more1, data, 2, TCPTRAN_DYNAMIC);
   data = malloc(3);
+  if (data == NULL) {
+    LOG(LEVEL_ERROR, "Can't alloc\n");
+    return 1;
+  }
   memcpy(data, "123", 3);
   tcp_transmit(&more2, data, 3, TCPTRAN_DYNAMIC);
   append_interactive_data(&more1, &more2);
   if (memcmp(more1.m_payload, "12345", 5) != 0 || more1.m_length != 5) {
     LOG(LEVEL_ERROR, "interactive_data: failed 3\n");
-    free_interactive_data(&more1);
-    free_interactive_data(&more2);
-    return 1;
+    x += 1;
   }
   free_interactive_data(&more1);
-  free_interactive_data(&more2);
 
   tcp_transmit(&more2, "123", 3, 0);
   append_interactive_data(&more1, &more2);
   if (memcmp(more1.m_payload, "123", 3) != 0 || more1.m_length != 3) {
     LOG(LEVEL_ERROR, "interactive_data: failed 4\n");
-    free_interactive_data(&more1);
-    free_interactive_data(&more2);
-    return 1;
+    x += 1;
   }
   free_interactive_data(&more1);
-  free_interactive_data(&more2);
 
   data = malloc(3);
+  if (data == NULL) {
+    LOG(LEVEL_ERROR, "Can't alloc\n");
+    return 1;
+  }
   memcpy(data, "123", 3);
   tcp_transmit(&more2, data, 3, TCPTRAN_DYNAMIC);
   append_interactive_data(&more1, &more2);
   if (memcmp(more1.m_payload, "123", 3) != 0 || more1.m_length != 3) {
     LOG(LEVEL_ERROR, "interactive_data: failed 5\n");
-    free_interactive_data(&more1);
-    free_interactive_data(&more2);
-    return 1;
+    x += 1;
   }
   free_interactive_data(&more1);
-  free_interactive_data(&more2);
 
   tcp_transmit(&more1, "45", 2, 0);
   append_interactive_data(&more1, &more2);
   if (memcmp(more1.m_payload, "45", 2) != 0 || more1.m_length != 2) {
     LOG(LEVEL_ERROR, "interactive_data: failed 6\n");
-    free_interactive_data(&more1);
-    free_interactive_data(&more2);
-    return 1;
+    x += 1;
   }
   free_interactive_data(&more1);
-  free_interactive_data(&more2);
 
   data = malloc(2);
+  if (data == NULL) {
+    LOG(LEVEL_ERROR, "Can't alloc\n");
+    return 1;
+  }
   memcpy(data, "45", 2);
   tcp_transmit(&more1, data, 2, TCPTRAN_DYNAMIC);
   append_interactive_data(&more1, &more2);
   if (memcmp(more1.m_payload, "45", 2) != 0 || more1.m_length != 2) {
     LOG(LEVEL_ERROR, "interactive_data: failed 7\n");
-    free_interactive_data(&more1);
-    free_interactive_data(&more2);
-    return 1;
+    x += 1;
   }
   free_interactive_data(&more1);
-  free_interactive_data(&more2);
 
-  return 0;
+  return x;
 }
+#endif

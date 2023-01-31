@@ -6,8 +6,8 @@
 /***************************************************************************
  * Print packet info, when using nmap-style --packet-trace option
  ***************************************************************************/
-void packet_trace(FILE *fp, double pt_start, const unsigned char *px,
-                  size_t length, unsigned is_sent) {
+void packet_trace(FILE *fp, double pt_start, unsigned char *px, size_t length,
+                  unsigned is_sent) {
 
   unsigned x;
   struct PreprocessedInfo parsed;
@@ -21,10 +21,11 @@ void packet_trace(FILE *fp, double pt_start, const unsigned char *px,
   ipaddress_formatted_t fmt;
   char *tmp;
 
-  if (is_sent)
+  if (is_sent) {
     direction = "SENT";
-  else
+  } else {
     direction = "RCVD";
+  }
 
   /* parse the packet */
   x = preprocess_frame(px, length, 1, &parsed);

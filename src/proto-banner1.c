@@ -216,7 +216,6 @@ banner1_get_parse_stream_by_app_proto(const struct Banner1 *banner1,
     return &banner_pop3;
   case PROTO_IMAP4:
     return &banner_imap4;
-    break;
   case PROTO_SSH1:
   case PROTO_SSH2:
     /* generic text-based parser
@@ -272,27 +271,26 @@ struct Banner1 *banner1_create(void) {
 void banner1_init(struct Banner1 *b) {
   b->payloads.tcp[80] = &banner_http;
   b->payloads.tcp[8080] = &banner_http;
-  b->payloads.tcp[139] = (void *)&banner_smb0;
-  b->payloads.tcp[445] = (void *)&banner_smb1;
-  b->payloads.tcp[443] = (void *)get_ssl_parser_stream(b); /* HTTP/s */
-  b->payloads.tcp[465] = (void *)get_ssl_parser_stream(b); /* SMTP/s */
-  b->payloads.tcp[990] = (void *)get_ssl_parser_stream(b); /* FTP/s */
-  b->payloads.tcp[991] = (void *)get_ssl_parser_stream(b);
-  b->payloads.tcp[992] = (void *)get_ssl_parser_stream(b); /* Telnet/s */
-  b->payloads.tcp[993] = (void *)get_ssl_parser_stream(b); /* IMAP4/s */
-  b->payloads.tcp[994] = (void *)get_ssl_parser_stream(b);
-  b->payloads.tcp[995] = (void *)get_ssl_parser_stream(b);  /* POP3/s */
-  b->payloads.tcp[2083] = (void *)get_ssl_parser_stream(b); /* cPanel - SSL */
-  b->payloads.tcp[2087] = (void *)get_ssl_parser_stream(b); /* WHM - SSL */
-  b->payloads.tcp[2096] =
-      (void *)get_ssl_parser_stream(b); /* cPanel webmail - SSL */
+  b->payloads.tcp[139] = &banner_smb0;
+  b->payloads.tcp[445] = &banner_smb1;
+  b->payloads.tcp[443] = get_ssl_parser_stream(b); /* HTTP/s */
+  b->payloads.tcp[465] = get_ssl_parser_stream(b); /* SMTP/s */
+  b->payloads.tcp[990] = get_ssl_parser_stream(b); /* FTP/s */
+  b->payloads.tcp[991] = get_ssl_parser_stream(b);
+  b->payloads.tcp[992] = get_ssl_parser_stream(b); /* Telnet/s */
+  b->payloads.tcp[993] = get_ssl_parser_stream(b); /* IMAP4/s */
+  b->payloads.tcp[994] = get_ssl_parser_stream(b);
+  b->payloads.tcp[995] = get_ssl_parser_stream(b);  /* POP3/s */
+  b->payloads.tcp[2083] = get_ssl_parser_stream(b); /* cPanel - SSL */
+  b->payloads.tcp[2087] = get_ssl_parser_stream(b); /* WHM - SSL */
+  b->payloads.tcp[2096] = get_ssl_parser_stream(b); /* cPanel webmail - SSL */
   b->payloads.tcp[8443] =
-      (void *)get_ssl_parser_stream(b); /* Plesk Control Panel - SSL */
-  b->payloads.tcp[9050] = (void *)get_ssl_parser_stream(b); /* Tor */
-  b->payloads.tcp[8140] = (void *)get_ssl_parser_stream(b); /* puppet */
-  b->payloads.tcp[11211] = (void *)&banner_memcached;
-  b->payloads.tcp[23] = (void *)&banner_telnet;
-  b->payloads.tcp[3389] = (void *)&banner_rdp;
+      get_ssl_parser_stream(b); /* Plesk Control Panel - SSL */
+  b->payloads.tcp[9050] = get_ssl_parser_stream(b); /* Tor */
+  b->payloads.tcp[8140] = get_ssl_parser_stream(b); /* puppet */
+  b->payloads.tcp[11211] = &banner_memcached;
+  b->payloads.tcp[23] = &banner_telnet;
+  b->payloads.tcp[3389] = &banner_rdp;
 
   /* This goes down the list of all the TCP protocol handlers and initializes
    * them. */
@@ -467,10 +465,19 @@ int banner1_selftest() {
   }
 
   {
-    char *s = (char *)banout_string(banout, PROTO_HTTP);
-    if (s == NULL || memcmp(s, "HTTP/1.0 302", 11) != 0) {
-      LOG(LEVEL_ERROR, "banner1: test failed: %s on LINE %d\n",
-          s == NULL ? "(null)" : s, __LINE__);
+    const char *s = (const char *)banout_string(banout, PROTO_HTTP);
+    if (s == NULL ||
+        memcmp(s, "HTTP/1.0 302 ", sizeof("HTTP/1.0 302 ") - 1) != 0) {
+      size_t s_length = sizeof("(null)");
+      if (s != NULL) {
+        s_length = banout_string_length(banout, PROTO_HTTP);
+      }
+      LOG(LEVEL_ERROR, "banner1: test failed: '%.*s' on LINE %d\n",
+          (int)s_length, s == NULL ? "(null)" : s, __LINE__);
+      keyout_release(&keyout);
+      signout_release(signout);
+      banout_release(banout);
+      banner1_destroy(b);
       return 1;
     }
   }

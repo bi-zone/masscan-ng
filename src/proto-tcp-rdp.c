@@ -328,7 +328,8 @@ static int rdp_selftest_item(const char *input, size_t length,
   struct KeyOutput *keyout = NULL;
   struct ResendPayload resend_payload[1];
   struct InteractiveData more = {0};
-  int x;
+  int x = 0;
+  bool check;
 
   /* Initiate a pseudo-environment for the parser */
   banner1 = banner1_create();
@@ -348,9 +349,10 @@ static int rdp_selftest_item(const char *input, size_t length,
 
   /* Verify that somewhere in the output is the string
    * we are looking for */
-  x = banout_is_contains(banout1, PROTO_RDP, expect);
-  if (x == 0) {
+  check = banout_is_contains(banout1, PROTO_RDP, expect);
+  if (!check) {
     LOG(LEVEL_ERROR, "RDP parser failure: %s\n", expect);
+    x += 1;
   }
 
   cleanup_application_proto(banner1, pstate, resend_payload);
@@ -359,7 +361,7 @@ static int rdp_selftest_item(const char *input, size_t length,
   signout_release(signout);
   banout_release(banout1);
 
-  return (x ? 0 : 1);
+  return x;
 }
 
 /***************************************************************************
@@ -383,7 +385,7 @@ static int rdp_selftest(void) {
 
 /***************************************************************************
  ***************************************************************************/
-static const char rdp_hello[] =
+static char rdp_hello[] =
     "\x03\x00\x00\x2d"
     "\x28\xe0\x00\x00\x00\x00\x00\x43\x6f\x6f\x6b\x69\x65\x3a\x20\x6d"
     "\x73\x74\x73\x68\x61\x73\x68\x3d"
@@ -393,7 +395,7 @@ static const char rdp_hello[] =
 
 /***************************************************************************
  ***************************************************************************/
-const struct ProtocolParserStream banner_rdp = {
+struct ProtocolParserStream banner_rdp = {
     "rdp",     PROTO_RDP,    false,    rdp_hello,   sizeof(rdp_hello) - 1,
     0,         rdp_selftest, rdp_init, rdp_cleanup, NULL,
     rdp_parse,

@@ -49,7 +49,7 @@
 #include "string_s.h"
 #include "syn-cookie.h"
 
-static struct SMACK *global_mib;
+static struct SMACK *smack_snmp_oids;
 
 /****************************************************************************
  * We parse an SNMP packet into this structure
@@ -58,7 +58,7 @@ struct SNMP {
   uint64_t version;
   uint64_t pdu_tag;
   const unsigned char *community;
-  uint64_t community_length;
+  size_t community_length;
   uint64_t request_id;
   uint64_t error_index;
   uint64_t error_status;
@@ -71,7 +71,7 @@ struct SNMP {
 static struct SnmpOid {
   const char *oid;
   const char *name;
-} mib[] = {
+} snmp_oids[] = {
     {"43.1006.51.341332", "selftest"}, /* for regression test */
     {"43", "iso.org"},
     {"43.6", "dod"},
@@ -91,91 +91,6 @@ static struct SnmpOid {
     {"43.6.1.4.1.2001", "okidata"},
     {0, 0},
 };
-
-/****************************************************************************
- * An ASN.1 length field has two formats.
- *  - if the high-order bit of the length byte is clear, then it
- *    encodes a length between 0 and 127.
- *  - if the high-order bit is set, then the length byte is a
- *    length-of-length, where the low order bits dictate the number of
- *    remaining bytes to be used in the length.
- ****************************************************************************/
-static uint64_t asn1_length(const unsigned char *px, uint64_t length,
-                            uint64_t *r_offset) {
-  uint64_t result;
-
-  /* check for errors */
-  if ((*r_offset >= length) ||
-      ((px[*r_offset] & 0x80) &&
-       ((*r_offset) + (px[*r_offset] & 0x7F) >= length))) {
-    *r_offset = length;
-    return 0xFFFFffff;
-  }
-
-  /* grab the byte's value */
-  result = px[(*r_offset)++];
-
-  if (result & 0x80) {
-    unsigned length_of_length = result & 0x7F;
-    if (length_of_length == 0) {
-      *r_offset = length;
-      return 0xFFFFffff;
-    }
-    result = 0;
-    while (length_of_length) {
-      result = result * 256 + px[(*r_offset)++];
-      if (result > 0x10000) {
-        *r_offset = length;
-        return 0xFFFFffff;
-      }
-      length_of_length--;
-    }
-  }
-  return result;
-}
-
-/****************************************************************************
- * Extract an integer. Note
- ****************************************************************************/
-static uint64_t asn1_integer(const unsigned char *px, uint64_t length,
-                             uint64_t *r_offset) {
-  uint64_t int_length;
-  uint64_t result;
-
-  if (px[(*r_offset)++] != 0x02) {
-    *r_offset = length;
-    return 0xFFFFffff;
-  }
-
-  int_length = asn1_length(px, length, r_offset);
-  if (int_length == 0xFFFFffff) {
-    *r_offset = length;
-    return 0xFFFFffff;
-  }
-  if (*r_offset + int_length > length) {
-    *r_offset = length;
-    return 0xFFFFffff;
-  }
-  if (int_length > 20) {
-    *r_offset = length;
-    return 0xFFFFffff;
-  }
-
-  result = 0;
-  while (int_length--)
-    result = result * 256 + px[(*r_offset)++];
-
-  return result;
-}
-
-/****************************************************************************
- ****************************************************************************/
-static unsigned asn1_tag(const unsigned char *px, uint64_t length,
-                         uint64_t *r_offset) {
-  if (*r_offset >= length)
-    return 0;
-  return px[(*r_offset)++];
-}
 
 /****************************************************************************
  ****************************************************************************/
@@ -208,7 +123,7 @@ static void snmp_banner_oid(const unsigned char *oid, size_t oid_length,
   /* Find the var name */
   state = 0;
   for (offset = 0; offset < oid_length;) {
-    id = smack_search_next(global_mib, &state, oid, &offset, oid_length);
+    id = smack_search_next(smack_snmp_oids, &state, oid, &offset, oid_length);
     if (id != SMACK_NOT_FOUND) {
       found_id = id;
       found_offset = offset;
@@ -217,7 +132,7 @@ static void snmp_banner_oid(const unsigned char *oid, size_t oid_length,
 
   /* Do the string */
   if (found_id != SMACK_NOT_FOUND) {
-    const char *str = mib[found_id].name;
+    const char *str = snmp_oids[found_id].name;
     banout_append(banout, PROTO_SNMP, str, strlen(str));
   }
 
@@ -275,11 +190,11 @@ static void snmp_banner(const unsigned char *oid, size_t oid_length,
  * TODO: only SNMPv0 is supported, the parser will have to be extended for
  * newer SNMP.
  ****************************************************************************/
-static void snmp_parse(const unsigned char *px, uint64_t length,
+static void snmp_parse(const unsigned char *px, size_t length,
                        struct BannerOutput *banout, unsigned *request_id) {
 
-  uint64_t offset = 0;
-  uint64_t outer_length;
+  size_t offset = 0;
+  size_t outer_length;
   struct SNMP snmp[1];
 
   memset(&snmp, 0, sizeof(*snmp));
@@ -310,8 +225,9 @@ static void snmp_parse(const unsigned char *px, uint64_t length,
   if (snmp->pdu_tag < 0xA0 || 0xA5 < snmp->pdu_tag)
     return;
   outer_length = asn1_length(px, length, &offset);
-  if (length > outer_length + offset)
+  if (length > outer_length + offset) {
     length = outer_length + offset;
+  }
 
   /* Request ID */
   snmp->request_id = asn1_integer(px, length, &offset);
@@ -323,32 +239,34 @@ static void snmp_parse(const unsigned char *px, uint64_t length,
   if (asn1_tag(px, length, &offset) != 0x30)
     return;
   outer_length = asn1_length(px, length, &offset);
-  if (length > outer_length + offset)
+  if (length > outer_length + offset) {
     length = outer_length + offset;
+  }
 
   /* Var-bind list */
   while (offset < length) {
-    uint64_t varbind_length;
+    size_t varbind_length;
     uint64_t varbind_end;
     if (px[offset++] != 0x30) {
       break;
     }
     varbind_length = asn1_length(px, length, &offset);
-    if (varbind_length == 0xFFFFffff)
+    if (varbind_length == UINTPTR_MAX) {
       break;
+    }
     varbind_end = offset + varbind_length;
     if (varbind_end > length) {
       return;
     }
 
     /* OID */
-    if (asn1_tag(px, length, &offset) != 6)
+    if (asn1_tag(px, length, &offset) != 6) {
       return;
-    else {
-      uint64_t oid_length = asn1_length(px, length, &offset);
+    } else {
+      size_t oid_length = asn1_length(px, length, &offset);
       const unsigned char *oid = px + offset;
       uint64_t var_tag;
-      uint64_t var_length;
+      size_t var_length;
       const unsigned char *var;
 
       offset += oid_length;
@@ -366,8 +284,7 @@ static void snmp_parse(const unsigned char *px, uint64_t length,
       if (var_tag == 5)
         continue; /* null */
 
-      snmp_banner(oid, (size_t)oid_length, var_tag, var, (size_t)var_length,
-                  banout);
+      snmp_banner(oid, oid_length, var_tag, var, var_length, banout);
     }
   }
 }
@@ -376,11 +293,11 @@ static void snmp_parse(const unsigned char *px, uint64_t length,
  ****************************************************************************/
 unsigned snmp_set_cookie(unsigned char *px, size_t length, uint64_t seqno) {
 
-  uint64_t offset = 0;
-  uint64_t outer_length;
+  size_t offset = 0;
+  size_t outer_length;
   uint64_t version;
   uint64_t tag;
-  uint64_t len;
+  size_t len;
 
   /* tag */
   if (asn1_tag(px, length, &offset) != 0x30)
@@ -388,8 +305,9 @@ unsigned snmp_set_cookie(unsigned char *px, size_t length, uint64_t seqno) {
 
   /* length */
   outer_length = asn1_length(px, length, &offset);
-  if (length > outer_length + offset)
-    length = (size_t)(outer_length + offset);
+  if (length > outer_length + offset) {
+    length = outer_length + offset;
+  }
 
   /* Version */
   version = asn1_integer(px, length, &offset);
@@ -406,8 +324,9 @@ unsigned snmp_set_cookie(unsigned char *px, size_t length, uint64_t seqno) {
   if (tag < 0xA0 || 0xA5 < tag)
     return 0;
   outer_length = asn1_length(px, length, &offset);
-  if (length > outer_length + offset)
-    length = (size_t)(outer_length + offset);
+  if (length > outer_length + offset) {
+    length = outer_length + offset;
+  }
 
   /* Request ID */
   asn1_tag(px, length, &offset);
@@ -421,82 +340,27 @@ unsigned snmp_set_cookie(unsigned char *px, size_t length, uint64_t seqno) {
   case 2:
     px[offset + 0] = (unsigned char)(seqno >> 8) & 0x7F;
     px[offset + 1] = (unsigned char)(seqno >> 0);
-    return seqno & 0x7fff;
+    return seqno & 0x7FFF;
   case 3:
     px[offset + 0] = (unsigned char)(seqno >> 16) & 0x7F;
     px[offset + 1] = (unsigned char)(seqno >> 8);
     px[offset + 2] = (unsigned char)(seqno >> 0);
-    return seqno & 0x7fffFF;
+    return seqno & 0x7FFFFF;
   case 4:
     px[offset + 0] = (unsigned char)(seqno >> 24) & 0x7F;
     px[offset + 1] = (unsigned char)(seqno >> 16);
     px[offset + 2] = (unsigned char)(seqno >> 8);
     px[offset + 3] = (unsigned char)(seqno >> 0);
-    return seqno & 0x7fffFFFF;
+    return seqno & 0x7FFFFFFF;
   case 5:
     px[offset + 0] = 0;
     px[offset + 1] = (unsigned char)(seqno >> 24);
     px[offset + 2] = (unsigned char)(seqno >> 16);
     px[offset + 3] = (unsigned char)(seqno >> 8);
     px[offset + 4] = (unsigned char)(seqno >> 0);
-    return seqno & 0xffffFFFF;
+    return seqno & 0xFFFFFFFF;
   }
   return 0;
-}
-
-#define TWO_BYTE ((unsigned long long)(~0) << 7)
-#define THREE_BYTE ((unsigned long long)(~0) << 14)
-#define FOUR_BYTE ((unsigned long long)(~0) << 21)
-#define FIVE_BYTE ((unsigned long long)(~0) << 28)
-
-/****************************************************************************
- ****************************************************************************/
-static size_t id_prefix_count(size_t id) {
-
-  if (id & FIVE_BYTE)
-    return 4;
-  if (id & FOUR_BYTE)
-    return 3;
-  if (id & THREE_BYTE)
-    return 2;
-  if (id & TWO_BYTE)
-    return 1;
-  return 0;
-}
-
-/****************************************************************************
- * Convert text OID to binary
- ****************************************************************************/
-static size_t convert_oid(unsigned char *dst, size_t sizeof_dst,
-                          const char *src) {
-
-  size_t offset = 0;
-
-  while (*src) {
-    const char *next_src;
-    size_t id;
-    size_t count;
-    size_t i;
-
-    while (*src == '.')
-      src++;
-
-    id = strtoul(src, (char **)&next_src, 0);
-    if (src == next_src)
-      break;
-    else
-      src = next_src;
-
-    count = id_prefix_count(id);
-    for (i = count; i > 0; i--) {
-      if (offset < sizeof_dst)
-        dst[offset++] = ((id >> (7 * i)) & 0x7F) | 0x80;
-    }
-    if (offset < sizeof_dst)
-      dst[offset++] = (id & 0x7F);
-  }
-
-  return offset;
 }
 
 /****************************************************************************
@@ -531,7 +395,7 @@ unsigned handle_snmp(struct Banner1 *banner1, struct Output *out,
    * a good one, then we'll ignore the response */
   seqno = (unsigned)syn_cookie(&ip_them, port_them | Templ_UDP, &ip_me, port_me,
                                entropy);
-  if ((seqno & 0x7FFFffff) != request_id)
+  if ((seqno & 0x7FFFFFFF) != request_id)
     return 1;
 
   /* Print the banner information, or save to a file, depending */
@@ -556,22 +420,22 @@ void snmp_init(void) {
 
   /* We use an Aho-Corasick pattern matcher for this. Not necessarily
    * the most efficient, but also not bad */
-  global_mib = smack_create("snmp-mib", 0);
+  smack_snmp_oids = smack_create("snmp-oids", 0);
 
   /* We just go through the table of OIDs and add them all one by
    * one */
-  for (i = 0; mib[i].name; i++) {
+  for (i = 0; snmp_oids[i].name; i++) {
     unsigned char pattern[256];
     size_t len;
-    len = convert_oid(pattern, sizeof(pattern), mib[i].oid);
-    smack_add_pattern(global_mib, pattern, len, i,
+    len = convert_oid(pattern, sizeof(pattern), snmp_oids[i].oid);
+    smack_add_pattern(smack_snmp_oids, pattern, len, i,
                       SMACK_ANCHOR_BEGIN | SMACK_SNMP_HACK);
   }
 
   /* Now that we've added all the OIDs, we need to compile this into
    * an efficient data structure. Later, when we get packets, we'll
    * use this for searching */
-  smack_compile(global_mib);
+  smack_compile(smack_snmp_oids);
 }
 
 /****************************************************************************
@@ -624,7 +488,7 @@ int snmp_selftest(void) {
   state = 0;
   offset = 0;
   while (offset < sizeof(xx)) {
-    i = smack_search_next(global_mib, &state, xx, &offset, sizeof(xx));
+    i = smack_search_next(smack_snmp_oids, &state, xx, &offset, sizeof(xx));
     if (i != SMACK_NOT_FOUND)
       found_id = i;
   }
@@ -632,7 +496,7 @@ int snmp_selftest(void) {
     LOG(LEVEL_ERROR, "snmp: oid parser failed\n");
     return 1;
   }
-  if (strcmp(mib[found_id].name, "selftest") != 0) {
+  if (strcmp(snmp_oids[found_id].name, "selftest") != 0) {
     LOG(LEVEL_ERROR, "snmp: oid parser failed\n");
     return 1;
   }

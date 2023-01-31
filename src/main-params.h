@@ -17,7 +17,7 @@ struct ThreadPair {
   /** This points to the central configuration. Note that it's 'const',
    * meaning that the thread cannot change the contents. That'd be
    * unsafe */
-  const struct Masscan *masscan;
+  struct Masscan *masscan;
 
   /** The adapter used by the thread-pair. Normally, thread-pairs have
    * their own network adapter, especially when doing PF_RING

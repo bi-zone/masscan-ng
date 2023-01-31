@@ -6,7 +6,7 @@
 #include "proto-banner1.h"
 struct Masscan;
 
-extern const struct ProtocolParserStream banner_scripting;
+extern struct ProtocolParserStream banner_scripting;
 
 /**
  * Load the Lua scripting library and run the initialization

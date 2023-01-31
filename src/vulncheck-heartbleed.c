@@ -1,6 +1,6 @@
 #include "proto-ssl.h"
 
-static const char ssl_hello_ticketbleed_templatex[] =
+static char ssl_hello_ticketbleed_templatex[] =
     "\x16\x03\x01\x01\x64\x01\x00\x01\x60\x03\x03\x13\xd4\xf7\xa8\xac"
     "\xdd\xc2\x20\xc5\xcc\xdb\xa4\x8d\xb3\xf3\xb5\xd3\x45\x1b\x53\x8d"
     "\x18\x70\xa2\xd9\x97\xaa\x63\xdd\xff\xdc\x68\x10\xff\x6f\xbf\xbc"
@@ -25,9 +25,9 @@ static const char ssl_hello_ticketbleed_templatex[] =
     "\xca\xf6\x4c\x8c\xb0\x07\x00\x0d\x00\x0a\x00\x08\x04\x01\x04\x03"
     "\x02\x01\x02\x03\xff\x01\x00\x01\x00";
 
-const char *ssl_hello_ticketbleed_template = ssl_hello_ticketbleed_templatex;
+char *ssl_hello_ticketbleed_template = ssl_hello_ticketbleed_templatex;
 
-static const char ssl_hello_heartbeat_templatex[] =
+static char ssl_hello_heartbeat_templatex[] =
     "\x16"             /* type = handshake */
     "\x03\x02"         /* version = 3.2 (TLS/1.1) */
     "\x00\xdc"         /* length  = 220 */
@@ -62,4 +62,4 @@ static const char ssl_hello_heartbeat_templatex[] =
     "\x00\x23\x00\x00"
     "\x00\x0f\x00\x01\x01";
 
-const char *ssl_hello_heartbeat_template = ssl_hello_heartbeat_templatex;
+char *ssl_hello_heartbeat_template = ssl_hello_heartbeat_templatex;

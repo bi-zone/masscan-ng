@@ -248,8 +248,8 @@ static void range6_combine(struct Range6 *lhs, const struct Range6 *rhs) {
  * Callback for qsort() for comparing two ranges
  ***************************************************************************/
 static int range6_compare(const void *lhs, const void *rhs) {
-  struct Range6 *left = (struct Range6 *)lhs;
-  struct Range6 *right = (struct Range6 *)rhs;
+  const struct Range6 *left = (const struct Range6 *)lhs;
+  const struct Range6 *right = (const struct Range6 *)rhs;
 
   if (ipv6address_is_equal(&left->begin, &right->begin))
     return 0;

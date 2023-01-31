@@ -17,7 +17,7 @@
  * I hand-crafted this "getL" request packet. It has the ID set to "mass",
  * then has been CRCed and encrypted.
  ***************************************************************************/
-const unsigned char zeroaccess_getL[] = {
+char zeroaccess_getL[] = {
     0x46, 0x5d, 0x49, 0x9e, 0x28, 0x94, 0x8d, 0xab,
     0xc9, 0xc0, 0xd1, 0x99, 0xe0, 0xf2, 0xc2, 0x5e,
 };

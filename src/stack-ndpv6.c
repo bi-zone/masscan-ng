@@ -418,7 +418,7 @@ int stack_ndpv6_resolve(struct Adapter *adapter, const ipv6address_t *my_ipv6,
     unsigned length2;
     unsigned secs;
     unsigned usecs;
-    const unsigned char *buf2;
+    unsigned char *buf2;
     int err;
     ipv6address_t router_ip;
 

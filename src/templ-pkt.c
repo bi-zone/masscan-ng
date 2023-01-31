@@ -405,12 +405,9 @@ size_t tcp_create_packet(struct TemplatePacket *tmpl, const ipaddress *ip_them,
     unsigned ip_id = ip_them->ipv4 ^ port_them ^ seqno;
     size_t offset_ip = tmpl->ipv4.offset_ip;
     size_t offset_tcp = tmpl->ipv4.offset_tcp;
-    size_t offset_payload =
-        offset_tcp +
-        (((size_t)(tmpl->ipv4.packet[offset_tcp + 12] & 0xF0)) >> 2);
-    size_t new_length = offset_payload + payload_length;
-    size_t ip_len = (offset_payload - offset_ip) + payload_length;
-    unsigned old_len;
+    size_t offset_app = tmpl->ipv6.offset_app;
+    size_t new_length = offset_app + payload_length;
+    size_t ip_len = (offset_app - offset_ip) + payload_length;
 
     if (new_length > px_length) {
       LOG(LEVEL_WARNING, "tcp: err generating packet: too much payload\n");
@@ -419,9 +416,8 @@ size_t tcp_create_packet(struct TemplatePacket *tmpl, const ipaddress *ip_them,
 
     memcpy(px + 0, tmpl->ipv4.packet, tmpl->ipv4.length);
     if (payload != NULL && payload_length != 0) {
-      memcpy(px + offset_payload, payload, payload_length);
+      memcpy(px + offset_app, payload, payload_length);
     }
-    old_len = px[offset_ip + 2] << 8 | px[offset_ip + 3];
 
     /* Fill in the empty fields in the IP header and then re-calculate
      * the checksum. */
@@ -438,14 +434,10 @@ size_t tcp_create_packet(struct TemplatePacket *tmpl, const ipaddress *ip_them,
     px[offset_ip + 18] = (unsigned char)((ip_them->ipv4 >> 8) & 0xFF);
     px[offset_ip + 19] = (unsigned char)((ip_them->ipv4 >> 0) & 0xFF);
 
-    xsum = tmpl->ipv4.checksum_ip;
-    xsum += (ip_id & 0xFFFF);
-    xsum += ip_me->ipv4;
-    xsum += ip_them->ipv4;
-    xsum += ip_len - old_len;
-    xsum = (xsum >> 16) + (xsum & 0xFFFF);
-    xsum = (xsum >> 16) + (xsum & 0xFFFF);
-    xsum = ~xsum;
+    px[offset_ip + 10] = (unsigned char)(0);
+    px[offset_ip + 11] = (unsigned char)(0);
+
+    xsum = (unsigned)~ip_header_checksum(px, offset_ip, px_length);
 
     px[offset_ip + 10] = (unsigned char)(xsum >> 8);
     px[offset_ip + 11] = (unsigned char)(xsum & 0xFF);
@@ -470,8 +462,8 @@ size_t tcp_create_packet(struct TemplatePacket *tmpl, const ipaddress *ip_them,
     px[offset_tcp + 14] = (unsigned char)(1200 >> 8);
     px[offset_tcp + 15] = (unsigned char)(1200 & 0xFF);
 
-    px[offset_tcp + 16] = (unsigned char)(0 >> 8);
-    px[offset_tcp + 17] = (unsigned char)(0 >> 0);
+    px[offset_tcp + 16] = (unsigned char)0;
+    px[offset_tcp + 17] = (unsigned char)0;
 
     xsum = tcp_checksum2(px, tmpl->ipv4.offset_ip, tmpl->ipv4.offset_tcp,
                          new_length - tmpl->ipv4.offset_tcp);
@@ -573,8 +565,8 @@ size_t tcp_create_packet(struct TemplatePacket *tmpl, const ipaddress *ip_them,
     px[offset_tcp + 14] = (unsigned char)(1200 >> 8);
     px[offset_tcp + 15] = (unsigned char)(1200 & 0xFF);
 
-    px[offset_tcp + 16] = (unsigned char)(0 >> 8);
-    px[offset_tcp + 17] = (unsigned char)(0 >> 0);
+    px[offset_tcp + 16] = (unsigned char)0;
+    px[offset_tcp + 17] = (unsigned char)0;
 
     xsum = checksum_ipv6(px + offset_ip + 8, px + offset_ip + 24, 6,
                          (offset_app - offset_tcp) + payload_length,
@@ -588,39 +580,39 @@ size_t tcp_create_packet(struct TemplatePacket *tmpl, const ipaddress *ip_them,
 
 /***************************************************************************
  ***************************************************************************/
-static void udp_payload_fixup(struct TemplatePacket *tmpl, unsigned port,
-                              unsigned seqno) {
+static size_t udp_payload_fixup(struct TemplatePacket *tmpl, size_t offset_app,
+                                unsigned port, unsigned seqno,
+                                unsigned char *px, size_t px_length) {
 
-  const unsigned char *px2 = 0;
-  size_t length2 = 0;
-  unsigned source_port2 = 0x1000;
-  uint64_t xsum2 = 0;
-  // unsigned char *px = tmpl->packet;
-  SET_COOKIE set_cookie = 0;
+  const unsigned char *payload = NULL;
+  size_t payload_length = 0;
+  SET_COOKIE set_cookie = NULL;
 
-  UNUSEDPARM(seqno);
+  if (payloads_udp_lookup(tmpl->payloads, port, &payload, &payload_length, NULL,
+                          NULL, &set_cookie)) {
 
-  payloads_udp_lookup(tmpl->payloads, port, &px2, &length2, &source_port2,
-                      &xsum2, &set_cookie);
-  /* Copy over the payloads */
-  memcpy(tmpl->ipv4.packet + tmpl->ipv4.offset_app, px2, length2);
-  memcpy(tmpl->ipv6.packet + tmpl->ipv6.offset_app, px2, length2);
+    if (offset_app + payload_length > px_length) {
+      LOG(LEVEL_WARNING, "udp: err generating packet: too much payload\n");
+      return offset_app;
+    }
 
-  /* Change the cookie values */
-  if (set_cookie) {
-    set_cookie(tmpl->ipv4.packet + tmpl->ipv4.offset_app, length2, seqno);
-    set_cookie(tmpl->ipv6.packet + tmpl->ipv6.offset_app, length2, seqno);
+    /* Copy over the payloads */
+    memcpy(px + offset_app, payload, payload_length);
+
+    /* Change the cookie values */
+    if (set_cookie) {
+      set_cookie(px + offset_app, payload_length, seqno);
+    }
+    return offset_app + payload_length;
   }
-
-  tmpl->ipv4.length = tmpl->ipv4.offset_app + length2;
-  tmpl->ipv6.length = tmpl->ipv6.offset_app + length2;
+  return offset_app;
 }
 
 void template_set_target_ipv6(struct TemplateSet *tmplset,
                               const ipv6address_t *ip_them, unsigned port_them,
                               const ipv6address_t *ip_me, unsigned port_me,
                               unsigned seqno, unsigned char *px,
-                              size_t sizeof_px, size_t *r_length) {
+                              size_t px_length, size_t *r_length) {
 
   size_t offset_ip;
   size_t offset_tcp;
@@ -629,7 +621,7 @@ void template_set_target_ipv6(struct TemplateSet *tmplset,
   uint64_t entropy = tmplset->entropy;
   size_t payload_length;
 
-  *r_length = sizeof_px;
+  *r_length = px_length;
 
   /* Find out which packet template to use. This is because we can
    * simultaneously scan for both TCP and UDP (and others). We've
@@ -641,7 +633,6 @@ void template_set_target_ipv6(struct TemplateSet *tmplset,
   } else if (port_them >= Templ_UDP && port_them <= Templ_UDP_last) {
     tmpl = &tmplset->pkts[Proto_UDP];
     port_them -= Templ_UDP;
-    udp_payload_fixup(tmpl, port_them, seqno);
   } else if (port_them >= Templ_SCTP && port_them <= Templ_SCTP_last) {
     tmpl = &tmplset->pkts[Proto_SCTP];
     port_them -= Templ_SCTP;
@@ -668,6 +659,10 @@ void template_set_target_ipv6(struct TemplateSet *tmplset,
   if (*r_length > tmpl->ipv6.length)
     *r_length = tmpl->ipv6.length;
   memcpy(px, tmpl->ipv6.packet, *r_length);
+  if (tmpl->proto == Proto_UDP) {
+    *r_length = udp_payload_fixup(tmpl, tmpl->ipv6.offset_app, port_them, seqno,
+                                  px, px_length);
+  }
   offset_ip = tmpl->ipv6.offset_ip;
   offset_tcp = tmpl->ipv6.offset_tcp;
   // ip_id = ip_them ^ port_them ^ seqno;
@@ -700,9 +695,9 @@ void template_set_target_ipv6(struct TemplateSet *tmplset,
    * Fill in the empty fields in the IP header and then re-calculate
    * the checksum.
    */
-  payload_length = tmpl->ipv6.length - tmpl->ipv6.offset_ip - 40;
-  px[offset_ip + 4] = (unsigned char)(payload_length >> 8);
-  px[offset_ip + 5] = (unsigned char)(payload_length >> 0);
+  payload_length = *r_length - tmpl->ipv6.offset_ip - 40;
+  px[offset_ip + 4] = (unsigned char)(payload_length >> 8) & 0xFF;
+  px[offset_ip + 5] = (unsigned char)(payload_length >> 0) & 0xFF;
   px[offset_ip + 8] = (unsigned char)((ip_me->hi >> 56ULL) & 0xFF);
   px[offset_ip + 9] = (unsigned char)((ip_me->hi >> 48ULL) & 0xFF);
   px[offset_ip + 10] = (unsigned char)((ip_me->hi >> 40ULL) & 0xFF);
@@ -752,7 +747,7 @@ void template_set_target_ipv6(struct TemplateSet *tmplset,
     px[offset_tcp + 7] = (unsigned char)(seqno >> 0);
 
     xsum = checksum_ipv6(px + offset_ip + 8, px + offset_ip + 24, 6,
-                         tmpl->ipv6.length - offset_tcp, px + offset_tcp);
+                         *r_length - offset_tcp, px + offset_tcp);
     px[offset_tcp + 16] = (unsigned char)(xsum >> 8);
     px[offset_tcp + 17] = (unsigned char)(xsum >> 0);
     break;
@@ -763,14 +758,14 @@ void template_set_target_ipv6(struct TemplateSet *tmplset,
     px[offset_tcp + 2] = (unsigned char)(port_them >> 8);
     px[offset_tcp + 3] = (unsigned char)(port_them & 0xFF);
     px[offset_tcp + 4] =
-        (unsigned char)((tmpl->ipv6.length - tmpl->ipv6.offset_app + 8) >> 8);
+        (unsigned char)((*r_length - tmpl->ipv6.offset_app + 8) >> 8);
     px[offset_tcp + 5] =
-        (unsigned char)((tmpl->ipv6.length - tmpl->ipv6.offset_app + 8) & 0xFF);
+        (unsigned char)((*r_length - tmpl->ipv6.offset_app + 8) & 0xFF);
 
     px[offset_tcp + 6] = (unsigned char)(0);
     px[offset_tcp + 7] = (unsigned char)(0);
     xsum = checksum_ipv6(px + offset_ip + 8, px + offset_ip + 24, 17,
-                         tmpl->ipv6.length - offset_tcp, px + offset_tcp);
+                         *r_length - offset_tcp, px + offset_tcp);
     px[offset_tcp + 6] = (unsigned char)(xsum >> 8);
     px[offset_tcp + 7] = (unsigned char)(xsum >> 0);
     break;
@@ -786,7 +781,7 @@ void template_set_target_ipv6(struct TemplateSet *tmplset,
     px[offset_tcp + 18] = (unsigned char)(seqno >> 8);
     px[offset_tcp + 19] = (unsigned char)(seqno >> 0);
 
-    xsum = sctp_checksum(px + offset_tcp, tmpl->ipv6.length - offset_tcp);
+    xsum = sctp_checksum(px + offset_tcp, *r_length - offset_tcp);
     px[offset_tcp + 8] = (unsigned char)(xsum >> 24);
     px[offset_tcp + 9] = (unsigned char)(xsum >> 16);
     px[offset_tcp + 10] = (unsigned char)(xsum >> 8);
@@ -801,7 +796,7 @@ void template_set_target_ipv6(struct TemplateSet *tmplset,
     px[offset_tcp + 6] = (unsigned char)(seqno >> 8);
     px[offset_tcp + 7] = (unsigned char)(seqno >> 0);
     xsum = checksum_ipv6(px + offset_ip + 8, px + offset_ip + 24, 58,
-                         tmpl->ipv6.length - offset_tcp, px + offset_tcp);
+                         *r_length - offset_tcp, px + offset_tcp);
     px[offset_tcp + 2] = (unsigned char)(xsum >> 8);
     px[offset_tcp + 3] = (unsigned char)(xsum >> 0);
     break;
@@ -835,17 +830,18 @@ void template_set_target_ipv4(struct TemplateSet *tmplset,
                               const ipv4address_t *ip_them, unsigned port_them,
                               const ipv4address_t *ip_me, unsigned port_me,
                               unsigned seqno, unsigned char *px,
-                              size_t sizeof_px, size_t *r_length) {
+                              size_t px_length, size_t *r_length) {
 
   size_t offset_ip;
   size_t offset_tcp;
   uint64_t xsum;
   unsigned ip_id;
+  size_t ip_len;
   struct TemplatePacket *tmpl = NULL;
   unsigned xsum2;
   uint64_t entropy = tmplset->entropy;
 
-  *r_length = sizeof_px;
+  *r_length = px_length;
 
   /* Find out which packet template to use. This is because we can
    * simultaneously scan for both TCP and UDP (and others). We've
@@ -857,7 +853,6 @@ void template_set_target_ipv4(struct TemplateSet *tmplset,
   } else if (port_them >= Templ_UDP && port_them <= Templ_UDP_last) {
     tmpl = &tmplset->pkts[Proto_UDP];
     port_them -= Templ_UDP;
-    udp_payload_fixup(tmpl, port_them, seqno);
   } else if (port_them >= Templ_SCTP && port_them <= Templ_SCTP_last) {
     tmpl = &tmplset->pkts[Proto_SCTP];
     port_them -= Templ_SCTP;
@@ -873,7 +868,6 @@ void template_set_target_ipv4(struct TemplateSet *tmplset,
       *r_length = tmpl->ipv4.length;
     memcpy(px, tmpl->ipv4.packet, *r_length);
     px += tmpl->ipv4.offset_ip;
-    // sizeof_px -= tmpl->ipv4.offset_ip;
     px[14] = (unsigned char)((*ip_me >> 24) & 0xFF);
     px[15] = (unsigned char)((*ip_me >> 16) & 0xFF);
     px[16] = (unsigned char)((*ip_me >> 8) & 0xFF);
@@ -894,9 +888,14 @@ void template_set_target_ipv4(struct TemplateSet *tmplset,
   if (*r_length > tmpl->ipv4.length)
     *r_length = tmpl->ipv4.length;
   memcpy(px, tmpl->ipv4.packet, *r_length);
+  if (tmpl->proto == Proto_UDP) {
+    *r_length = udp_payload_fixup(tmpl, tmpl->ipv4.offset_app, port_them, seqno,
+                                  px, px_length);
+  }
   offset_ip = tmpl->ipv4.offset_ip;
   offset_tcp = tmpl->ipv4.offset_tcp;
   ip_id = *ip_them ^ port_them ^ seqno;
+  ip_len = *r_length - tmpl->ipv4.offset_ip;
 
   /*
 
@@ -920,11 +919,8 @@ void template_set_target_ipv4(struct TemplateSet *tmplset,
 
   /* Fill in the empty fields in the IP header and then re-calculate
    * the checksum. */
-  {
-    size_t total_length = tmpl->ipv4.length - tmpl->ipv4.offset_ip;
-    px[offset_ip + 2] = (unsigned char)(total_length >> 8);
-    px[offset_ip + 3] = (unsigned char)(total_length >> 0);
-  }
+  px[offset_ip + 2] = (unsigned char)(ip_len >> 8);
+  px[offset_ip + 3] = (unsigned char)(ip_len & 0xFF);
   px[offset_ip + 4] = (unsigned char)(ip_id >> 8);
   px[offset_ip + 5] = (unsigned char)(ip_id & 0xFF);
   px[offset_ip + 12] = (unsigned char)((*ip_me >> 24) & 0xFF);
@@ -939,7 +935,7 @@ void template_set_target_ipv4(struct TemplateSet *tmplset,
   px[offset_ip + 10] = (unsigned char)(0);
   px[offset_ip + 11] = (unsigned char)(0);
 
-  xsum2 = (unsigned)~ip_header_checksum(px, offset_ip, tmpl->ipv4.length);
+  xsum2 = (unsigned)~ip_header_checksum(px, offset_ip, px_length);
 
   px[offset_ip + 10] = (unsigned char)(xsum2 >> 8);
   px[offset_ip + 11] = (unsigned char)(xsum2 & 0xFF);
@@ -974,24 +970,13 @@ void template_set_target_ipv4(struct TemplateSet *tmplset,
     px[offset_tcp + 2] = (unsigned char)(port_them >> 8);
     px[offset_tcp + 3] = (unsigned char)(port_them & 0xFF);
     px[offset_tcp + 4] =
-        (unsigned char)((tmpl->ipv4.length - tmpl->ipv4.offset_app + 8) >> 8);
+        (unsigned char)((*r_length - tmpl->ipv4.offset_app + 8) >> 8);
     px[offset_tcp + 5] =
-        (unsigned char)((tmpl->ipv4.length - tmpl->ipv4.offset_app + 8) & 0xFF);
+        (unsigned char)((*r_length - tmpl->ipv4.offset_app + 8) & 0xFF);
 
     px[offset_tcp + 6] = (unsigned char)(0);
     px[offset_tcp + 7] = (unsigned char)(0);
-    xsum = udp_checksum2(px, offset_ip, offset_tcp,
-                         tmpl->ipv4.length - offset_tcp);
-    /*xsum += (uint64_t)tmpl->checksum_tcp
-            + (uint64_t)*ip_me
-            + (uint64_t)*ip_them
-            + (uint64_t)port_me
-            + (uint64_t)port_them
-            + (uint64_t)2*(tmpl->length - tmpl->offset_app);
-    xsum = (xsum >> 16) + (xsum & 0xFFFF);
-    xsum = (xsum >> 16) + (xsum & 0xFFFF);
-    xsum = (xsum >> 16) + (xsum & 0xFFFF);
-    printf("%04x\n", xsum);*/
+    xsum = udp_checksum2(px, offset_ip, offset_tcp, *r_length - offset_tcp);
     xsum = ~xsum;
     px[offset_tcp + 6] = (unsigned char)(xsum >> 8);
     px[offset_tcp + 7] = (unsigned char)(xsum >> 0);
@@ -1007,7 +992,7 @@ void template_set_target_ipv4(struct TemplateSet *tmplset,
     px[offset_tcp + 18] = (unsigned char)(seqno >> 8);
     px[offset_tcp + 19] = (unsigned char)(seqno >> 0);
 
-    xsum = sctp_checksum(px + offset_tcp, tmpl->ipv4.length - offset_tcp);
+    xsum = sctp_checksum(px + offset_tcp, *r_length - offset_tcp);
     px[offset_tcp + 8] = (unsigned char)(xsum >> 24);
     px[offset_tcp + 9] = (unsigned char)(xsum >> 16);
     px[offset_tcp + 10] = (unsigned char)(xsum >> 8);
@@ -1030,7 +1015,7 @@ void template_set_target_ipv4(struct TemplateSet *tmplset,
     break;
   case Proto_VulnCheck:
     tmplset->vulncheck->set_target(tmpl, ip_them, port_them, ip_me, port_me,
-                                   seqno, px, sizeof_px, r_length);
+                                   seqno, px, px_length, r_length);
     break;
   case Proto_ARP:
     /* don't do any checksumming */
@@ -1174,8 +1159,7 @@ static void _template_init(struct TemplatePacket *tmpl,
    * - zero it out
    * - make copy of the old packet to serve as new template */
   memset(tmpl, 0, sizeof(*tmpl));
-  assert(packet_size <= 2048);
-  tmpl->ipv4.length = max(2048, packet_size);
+  tmpl->ipv4.length = packet_size;
   tmpl->ipv4.packet = MALLOC(tmpl->ipv4.length);
   memcpy(tmpl->ipv4.packet, packet_bytes, packet_size);
   px = tmpl->ipv4.packet;
@@ -1199,8 +1183,8 @@ static void _template_init(struct TemplatePacket *tmpl,
   /* Overwrite the MAC and IP addresses */
   memcpy(px + 0, router_mac_ipv4->addr, 6);
   memcpy(px + 6, source_mac->addr, 6);
-  memset((void *)parsed._ip_src, 0, 4);
-  memset((void *)parsed._ip_dst, 0, 4);
+  memset(parsed._ip_src, 0, 4);
+  memset(parsed._ip_dst, 0, 4);
 
   /* ARP
    *

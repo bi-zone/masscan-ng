@@ -65,7 +65,7 @@ scripting_tcp_parse(const struct Banner1 *banner1, void *banner1_private,
  ***************************************************************************/
 static void register_script_for_port(struct Banner1 *b, int port) {
   LOG(LEVEL_ERROR, "SCRIPTING: using port %d\n", port);
-  b->payloads.tcp[port] = (struct ProtocolParserStream *)&banner_scripting;
+  b->payloads.tcp[port] = &banner_scripting;
 }
 
 /***************************************************************************
@@ -157,16 +157,16 @@ static int scripting_banner_selftest(void) { return 0; }
 
 /***************************************************************************
  ***************************************************************************/
-const struct ProtocolParserStream banner_scripting = {"scripting",
-                                                      PROTO_SCRIPTING,
-                                                      false,
-                                                      "stats\r\n",
-                                                      7,
-                                                      0,
-                                                      scripting_banner_selftest,
-                                                      scripting_banner_init,
-                                                      scripting_banner_cleanup,
-                                                      NULL,
-                                                      scripting_tcp_parse,
-                                                      NULL,
-                                                      scripting_transmit_hello};
+struct ProtocolParserStream banner_scripting = {"scripting",
+                                                PROTO_SCRIPTING,
+                                                false,
+                                                "stats\r\n",
+                                                7,
+                                                0,
+                                                scripting_banner_selftest,
+                                                scripting_banner_init,
+                                                scripting_banner_cleanup,
+                                                NULL,
+                                                scripting_tcp_parse,
+                                                NULL,
+                                                scripting_transmit_hello};

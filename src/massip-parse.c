@@ -714,7 +714,6 @@ static enum parser_result_t _parser_next(struct massip_parser *p,
           }
         }
         continue;
-        break;
       case 'a':
       case 'b':
       case 'c':

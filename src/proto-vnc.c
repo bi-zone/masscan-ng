@@ -134,7 +134,7 @@ static void vnc_parse(const struct Banner1 *banner1, void *banner1_private,
       break;
     case 11:
       if ('\n' == px[i]) {
-        static const char *response[] = {
+        static char *response[] = {
             "RFB 003.003\n", "RFB 003.003\n", "RFB 003.003\n", "RFB 003.003\n",
             "RFB 003.003\n", "RFB 003.003\n", "RFB 003.003\n", "RFB 003.007\n",
             "RFB 003.008\n", "RFB 003.008\n",
@@ -343,7 +343,7 @@ static int vnc_selftest(void) { return 0; }
 
 /***************************************************************************
  ***************************************************************************/
-const struct ProtocolParserStream banner_vnc = {
+struct ProtocolParserStream banner_vnc = {
     "vnc",        PROTO_VNC_RFB, false,       NULL, 0,         0,
     vnc_selftest, vnc_init,      vnc_cleanup, NULL, vnc_parse,
 };

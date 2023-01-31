@@ -422,7 +422,7 @@ static int memcached_selftest(void) { return 0; }
 
 /***************************************************************************
  ***************************************************************************/
-const struct ProtocolParserStream banner_memcached = {
+struct ProtocolParserStream banner_memcached = {
     "memcached",
     PROTO_MEMCACHED,
     false,

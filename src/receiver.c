@@ -58,7 +58,7 @@ static void receive_read_thread(void *v) {
     unsigned length;
     unsigned secs;
     unsigned usecs;
-    const unsigned char *px;
+    unsigned char *px;
     int err;
     struct PacketBufferRecv *response = NULL;
     uint64_t wait = 100;

@@ -1468,7 +1468,8 @@ int smack_benchmark(void) {
 
   /* Create 20 patterns */
   for (i = 0; i < 20; i++) {
-    size_t pattern_length = r_rand(&seed) % 3 + r_rand(&seed) % 4 + 4;
+    size_t pattern_length =
+        (size_t)r_rand(&seed) % 3 + (size_t)r_rand(&seed) % 4 + 4;
     char pattern[20];
     size_t j;
 

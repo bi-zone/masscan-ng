@@ -171,7 +171,7 @@ int stack_arp_resolve(struct Adapter *adapter, const ipv4address_t *my_ipv4,
     unsigned length;
     unsigned secs;
     unsigned usecs;
-    const unsigned char *px;
+    unsigned char *px;
     int err;
 
     if (time(0) != start) {

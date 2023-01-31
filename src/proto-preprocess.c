@@ -18,22 +18,30 @@
 #include "proto-preprocess.h"
 
 #define ex32be(px)                                                             \
-  (*((unsigned char *)(px) + 0) << 24 | *((unsigned char *)(px) + 1) << 16 |   \
-   *((unsigned char *)(px) + 2) << 8 | *((unsigned char *)(px) + 3) << 0)
+  (*((const unsigned char *)(px) + 0) << 24 |                                  \
+   *((const unsigned char *)(px) + 1) << 16 |                                  \
+   *((const unsigned char *)(px) + 2) << 8 |                                   \
+   *((const unsigned char *)(px) + 3) << 0)
 #define ex32le(px)                                                             \
-  (*((unsigned char *)(px) + 0) << 0 | *((unsigned char *)(px) + 1) << 8 |     \
-   *((unsigned char *)(px) + 2) << 16 | *((unsigned char *)(px) + 3) << 24)
+  (*((const unsigned char *)(px) + 0) << 0 |                                   \
+   *((const unsigned char *)(px) + 1) << 8 |                                   \
+   *((const unsigned char *)(px) + 2) << 16 |                                  \
+   *((const unsigned char *)(px) + 3) << 24)
 #define ex16be(px)                                                             \
-  (*((unsigned char *)(px) + 0) << 8 | *((unsigned char *)(px) + 1) << 0)
+  (*((const unsigned char *)(px) + 0) << 8 |                                   \
+   *((const unsigned char *)(px) + 1) << 0)
 #define ex16le(px)                                                             \
-  (*((unsigned char *)(px) + 0) << 0 | *((unsigned char *)(px) + 1) << 8)
+  (*((const unsigned char *)(px) + 0) << 0 |                                   \
+   *((const unsigned char *)(px) + 1) << 8)
 
 #define ex24be(px)                                                             \
-  (*((unsigned char *)(px) + 0) << 16 | *((unsigned char *)(px) + 1) << 8 |    \
-   *((unsigned char *)(px) + 2) << 0)
+  (*((const unsigned char *)(px) + 0) << 16 |                                  \
+   *((const unsigned char *)(px) + 1) << 8 |                                   \
+   *((const unsigned char *)(px) + 2) << 0)
 #define ex24le(px)                                                             \
-  (*((unsigned char *)(px) + 0) << 0 | *((unsigned char *)(px) + 1) << 8 |     \
-   *((unsigned char *)(px) + 2) << 16)
+  (*((const unsigned char *)(px) + 0) << 0 |                                   \
+   *((const unsigned char *)(px) + 1) << 8 |                                   \
+   *((const unsigned char *)(px) + 2) << 16)
 
 #define ex64be(px)                                                             \
   ((((uint64_t)ex32be(px)) << 32L) + ((uint64_t)ex32be((px) + 4)))
@@ -55,8 +63,8 @@
 
 /****************************************************************************
  ****************************************************************************/
-unsigned preprocess_frame(const unsigned char *px, size_t length,
-                          unsigned link_type, struct PreprocessedInfo *info) {
+unsigned preprocess_frame(unsigned char *px, size_t length, unsigned link_type,
+                          struct PreprocessedInfo *info) {
 
   size_t offset = 0;
   unsigned ethertype = 0;
@@ -171,7 +179,7 @@ parse_ipv4 : {
 parse_tcp : {
   size_t tcp_length;
   VERIFY_REMAINING(20, FOUND_TCP);
-  tcp_length = px[offset + 12] >> 2;
+  tcp_length = (size_t)((px[offset + 12] & 0xF0) >> 2);
   VERIFY_REMAINING(tcp_length, FOUND_TCP);
   info->port_src = ex16be(px + offset + 0);
   info->port_dst = ex16be(px + offset + 2);

@@ -3,7 +3,7 @@
 #include <stdio.h>
 
 struct InteractiveData {
-  const void *m_payload;
+  void *m_payload;
   unsigned m_length;
   unsigned tcp_ctrl;
   unsigned is_payload_dynamic : 1;
@@ -15,7 +15,7 @@ enum {
 };
 
 /* Called to 'transmit' TCP packet payload. */
-void tcp_transmit(struct InteractiveData *more, const void *data, size_t length,
+void tcp_transmit(struct InteractiveData *more, void *data, size_t length,
                   unsigned flags);
 
 /* Called to close the connection */

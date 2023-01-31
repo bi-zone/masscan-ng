@@ -92,7 +92,7 @@ struct SmbParams params[] = {
 
 #define memberat(t, s, offset) (t *)((char *)(s) + (offset))
 
-static const unsigned char smb1_hello_template[] = {
+static unsigned char smb1_hello_template[] = {
     0x00, 0x00, 0x00, 0x45, 0xff, 0x53, 0x4d, 0x42, 0x72, 0x00, 0x00,
     0x00, 0x00, 0x08, 0x01, 0xc8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0x01, 0x00, 0xff,
@@ -103,7 +103,7 @@ static const unsigned char smb1_hello_template[] = {
 
 };
 
-static const unsigned char smb1_hello_template_v1[] = {
+static unsigned char smb1_hello_template_v1[] = {
     0x00, 0x00, 0x00, 0x45, 0xff, 0x53, 0x4d, 0x42, 0x72, 0x00, 0x00,
     0x00, 0x00, 0x08, 0x01, 0xc8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0x01, 0x00, 0xff,
@@ -119,7 +119,7 @@ void smb_set_hello_v1(struct ProtocolParserStream *smb) {
   smb->hello_length = sizeof(smb1_hello_template_v1);
 }
 
-static unsigned char smb1_null_session_setup[] = {
+unsigned char smb1_null_session_setup[] = {
     0x00, 0x00, 0x00, 0x7e, 0xff, 0x53, 0x4d, 0x42, 0x73, 0x00, 0x00, 0x00,
     0x00, 0x08, 0x01, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0x01, 0x00, 0xff, 0xff, 0x01, 0x00,
@@ -132,7 +132,7 @@ static unsigned char smb1_null_session_setup[] = {
     0x00, 0x00, 0x53, 0x00, 0x4d, 0x00, 0x42, 0x00, 0x46, 0x00, 0x53, 0x00,
     0x20, 0x00, 0x33, 0x00, 0x2e, 0x00, 0x32, 0x00, 0x00, 0x00};
 
-static unsigned char smb1_null_session_setup_ex[] = {
+unsigned char smb1_null_session_setup_ex[] = {
     0x00, 0x00, 0x00, 0xb8, 0xff, 0x53, 0x4d, 0x42, 0x73, 0x00, 0x00, 0x00,
     0x00, 0x08, 0x01, 0xc8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00,
@@ -963,7 +963,8 @@ static size_t smb2_parse_negotiate(struct SMBSTUFF *smb,
     case N_GUID02:
     case N_GUID03:
     case N_GUID04:
-      smb->hdr.smb2.number |= px[offset] << (8 * (state - N_GUID01));
+      smb->hdr.smb2.number |= (unsigned int)px[offset]
+                              << (8 * (state - N_GUID01));
       if (state == N_GUID04 && !smb->is_printed_guid) {
         banout_append_hexint(banout, PROTO_SMB, smb->hdr.smb2.number, 8);
         banout_append_char(banout, PROTO_SMB, '-');
@@ -1035,7 +1036,7 @@ static size_t smb2_parse_negotiate(struct SMBSTUFF *smb,
         size_t len;
 
         gmtime_s(&tm, &timestamp);
-        len = strftime(str, sizeof(str), " time=%Y-%m-%d %H:%M:%S ", &tm);
+        len = strftime(str, sizeof(str), " time=%Y-%m-%d %H:%M:%S", &tm);
         banout_append(banout, PROTO_SMB, str, len);
         smb->is_printed_time = 1;
       }
@@ -1254,7 +1255,8 @@ static size_t smb2_parse_header(struct SMBSTUFF *smb, const unsigned char *px,
     case SMB2_STATUS2:
     case SMB2_STATUS3:
     case SMB2_STATUS4:
-      smb->hdr.smb2.ntstatus |= (px[offset] << ((state - SMB2_STATUS1) * 8));
+      smb->hdr.smb2.ntstatus |=
+          ((unsigned int)px[offset] << ((state - SMB2_STATUS1) * 8));
       state++;
       break;
     case SMB2_OPCODE1:
@@ -1427,19 +1429,19 @@ static size_t smb_parse_smb(struct SMBSTUFF *smb, const unsigned char *px,
       switch (px[i]) {
       case 0xFF:
         if (!smb->is_printed_ver)
-          banout_append(banout, PROTO_SMB, "SMBv1 ", AUTO_LEN);
+          banout_append(banout, PROTO_SMB, "SMBv1", AUTO_LEN);
         smb->is_printed_ver = 1;
         state = SMB1_VER_S;
         break;
       case 0xFE:
         if (!smb->is_printed_ver)
-          banout_append(banout, PROTO_SMB, "SMBv2 ", AUTO_LEN);
+          banout_append(banout, PROTO_SMB, "SMBv2", AUTO_LEN);
         smb->is_printed_ver = 1;
         state = SMB2_VER_S;
         break;
       default:
         if (!smb->is_printed_ver)
-          banout_append(banout, PROTO_SMB, "SMBv? ", AUTO_LEN);
+          banout_append(banout, PROTO_SMB, "SMBv?", AUTO_LEN);
         smb->is_printed_ver = 1;
         state = SMB_ERROR;
       }
@@ -1576,7 +1578,7 @@ static size_t smb_parse_smb(struct SMBSTUFF *smb, const unsigned char *px,
 
           len = strftime(str, sizeof(str), " time=%Y-%m-%d %H:%M:%S", &tm);
           banout_append(banout, PROTO_SMB, str, len);
-          sprintf_s(str, sizeof(str), " TZ=%+d ",
+          sprintf_s(str, sizeof(str), " TZ=%+d",
                     (short)smb->parms.negotiate.ServerTimeZone);
           banout_append(banout, PROTO_SMB, str, AUTO_LEN);
 
@@ -1610,7 +1612,7 @@ static size_t smb_parse_smb(struct SMBSTUFF *smb, const unsigned char *px,
              * potential memory leak. The 'tcp_transmit' function 'adopts' the
              * pointer and will be responsible for freeing it after the packet
              * gets successfully transmitted */
-            buf = 0;
+            buf = NULL;
           } else {
             tcp_transmit(more, smb1_null_session_setup,
                          sizeof(smb1_null_session_setup), 0);
@@ -1681,7 +1683,7 @@ static size_t smb_parse_smb(struct SMBSTUFF *smb, const unsigned char *px,
     case SMB2_HDR_LEN2:
       smb->hdr.smb2.header_length |= (px[i] << 8);
       if (smb->hdr.smb2.header_length < 12) {
-        banout_append(banout, PROTO_SMB, " PARSERROR[hdrlen] ", AUTO_LEN);
+        banout_append(banout, PROTO_SMB, " PARSERROR[hdrlen]", AUTO_LEN);
         state = SMB_ERROR;
       } else {
         smb->hdr.smb2.offset = 6;
@@ -1709,7 +1711,7 @@ static size_t smb_parse_smb(struct SMBSTUFF *smb, const unsigned char *px,
       smb->hdr.smb2.offset = 2;
       memset(&smb->parms, 0, sizeof(smb->parms));
       if (smb->hdr.smb2.struct_length < 2) {
-        banout_append(banout, PROTO_SMB, " PARSERROR[structlen] ", AUTO_LEN);
+        banout_append(banout, PROTO_SMB, " PARSERROR[structlen]", AUTO_LEN);
         state = SMB_ERROR;
       } else
         state++;
@@ -1767,6 +1769,7 @@ static size_t smb_parse_smb(struct SMBSTUFF *smb, const unsigned char *px,
     case SMB2_UNTIL_BLOB:
       if (smb->hdr.smb2.blob_offset == 0) {
         spnego_decode_init(&smb->spnego, smb->hdr.smb2.blob_length);
+        smb->spnego.is_printed_mech_types = smb->is_printed_mech_types;
         i--;
         state = SMB2_PARSE_BLOB;
       } else
@@ -1777,6 +1780,7 @@ static size_t smb_parse_smb(struct SMBSTUFF *smb, const unsigned char *px,
       if (new_max > i + smb->hdr.smb2.blob_length)
         new_max = i + smb->hdr.smb2.blob_length;
       spnego_decode(&smb->spnego, px + i, new_max - i, banout);
+      smb->is_printed_mech_types |= smb->spnego.is_printed_mech_types;
 
       smb->hdr.smb2.blob_length -= (unsigned short)(new_max - i);
       i = new_max;
@@ -1845,8 +1849,9 @@ smb_parse_record(const struct Banner1 *banner1, void *banner1_private,
   for (i = 0; i < max; i++)
     switch (state) {
     case NBT_TYPE:
-      if (smb->spnego.ntlmssp.buf)
+      if (smb->spnego.ntlmssp.buf) {
         ntlmssp_cleanup(&smb->spnego.ntlmssp);
+      }
       smb->nbt_type = px[i];
       state++;
       break;
@@ -1864,7 +1869,6 @@ smb_parse_record(const struct Banner1 *banner1, void *banner1_private,
       smb->nbt_length <<= 8;
       smb->nbt_length |= px[i];
       state++;
-
       /*
        00 -  SESSION MESSAGE
        81 -  SESSION REQUEST
@@ -1872,14 +1876,14 @@ smb_parse_record(const struct Banner1 *banner1, void *banner1_private,
        83 -  NEGATIVE SESSION RESPONSE
        84 -  RETARGET SESSION RESPONSE
        85 -  SESSION KEEP ALIVE
-       */
+      */
       switch (smb->nbt_type) {
       case 0x00:
         state = NBT_SMB;
         smb->nbt_state = 0;
         break;
       case 0x81:
-        banout_append(banout, PROTO_SMB, " PARSERR(nbt-sess) ", AUTO_LEN);
+        banout_append(banout, PROTO_SMB, " PARSERR(nbt-sess)", AUTO_LEN);
         state = NBT_UNKNOWN;
         break;
       case 0x82:
@@ -1893,11 +1897,11 @@ smb_parse_record(const struct Banner1 *banner1, void *banner1_private,
         state = NBT_ERR;
         break;
       case 0x84:
-        banout_append(banout, PROTO_SMB, " PARSERR(nbt-retarget) ", AUTO_LEN);
+        banout_append(banout, PROTO_SMB, " PARSERR(nbt-retarget)", AUTO_LEN);
         state = NBT_UNKNOWN;
         break;
       default:
-        banout_append(banout, PROTO_SMB, "ERR unknown response", AUTO_LEN);
+        banout_append(banout, PROTO_SMB, "ERROR(unknown response)", AUTO_LEN);
         break;
       }
       break;
@@ -1941,18 +1945,19 @@ smb_parse_record(const struct Banner1 *banner1, void *banner1_private,
     case NBT_SMB:
       i += smb_parse_smb(smb, px + i, max - i, banout, more);
       if (smb->nbt_length == 0) {
-        state = 0;
+        state = NBT_TYPE;
         i--;
       }
       break;
 
     case NBT_DRAIN:
       if (smb->nbt_length == 0) {
-        state = 0;
+        state = NBT_TYPE;
         i--;
       } else
         smb->nbt_length--;
       break;
+
     case NBT_UNKNOWN:
     default:
       break;
@@ -2012,7 +2017,7 @@ static void smb_cleanup(struct Banner1 *banner1) {
 /*****************************************************************************
  *****************************************************************************/
 
-static const unsigned char smb0_hello_template[] = {
+static unsigned char smb0_hello_template[] = {
     0x81, 0x00, 0x00, 0x44, 0x20, 0x43, 0x4b, 0x46, 0x44, 0x45, 0x4e, 0x45,
     0x43, 0x46, 0x44, 0x45, 0x46, 0x46, 0x43, 0x46, 0x47, 0x45, 0x46, 0x46,
     0x43, 0x43, 0x41, 0x43, 0x41, 0x43, 0x41, 0x43, 0x41, 0x43, 0x41, 0x43,
@@ -2032,11 +2037,15 @@ static const unsigned char smb0_hello_template[] = {
     0x00*/
 };
 
+struct Packet {
+  const unsigned char *bytes;
+  size_t length;
+};
+
 /*****************************************************************************
  * Do a single test of response packets
  *****************************************************************************/
-static int smb_do_test(const char *substring, const unsigned char *packet_bytes,
-                       size_t length) {
+static int smb_do_test(const char *substring, const struct Packet *packets) {
 
   struct Banner1 *banner1;
   struct ProtocolState state[1];
@@ -2045,7 +2054,8 @@ static int smb_do_test(const char *substring, const unsigned char *packet_bytes,
   struct KeyOutput *keyout = NULL;
   struct ResendPayload resend_payload;
   struct InteractiveData more = {0};
-  int x;
+  int x = 0;
+  bool check;
 
   banner1 = banner1_create();
   banner1_init(banner1);
@@ -2056,19 +2066,26 @@ static int smb_do_test(const char *substring, const unsigned char *packet_bytes,
   state->app_proto = PROTO_SMB;
   state->parser_stream = &banner_smb1;
   init_application_proto(banner1, state, &resend_payload, banout1, &keyout);
-  application_receive_next(banner1, state, state, &resend_payload, packet_bytes,
-                           length, banout1, signout, &keyout, &more);
-  free_interactive_data(&more);
-  x = banout_is_contains(banout1, PROTO_SMB, substring);
-  if (x == 0) {
+
+  while (packets->bytes != NULL && packets->length != 0) {
+    application_receive_next(banner1, state, state, &resend_payload,
+                             packets->bytes, packets->length, banout1, signout,
+                             &keyout, &more);
+    free_interactive_data(&more);
+    packets++;
+  }
+
+  check = banout_is_contains(banout1, PROTO_SMB, substring);
+  if (!check) {
     LOG(LEVEL_ERROR, "smb parser failure: %s\n", substring);
+    x += 1;
   }
   cleanup_application_proto(banner1, state, &resend_payload);
   keyout_release(&keyout);
   signout_release(signout);
   banout_release(banout1);
   banner1_destroy(banner1);
-  return x ? 0 : 1;
+  return x;
 }
 
 /*****************************************************************************
@@ -2121,7 +2138,9 @@ static int smb_selftest(void) {
         0x2e, 0x00, 0x32, 0x00, 0x00, 0x00, 0x57, 0x00, 0x4f, 0x00, 0x52, 0x00,
         0x4b, 0x00, 0x47, 0x00, 0x52, 0x00, 0x4f, 0x00, 0x55, 0x00, 0x50, 0x00,
         0x00, 0x00};
-    x += smb_do_test("os=EPSON", packet_bytes, sizeof(packet_bytes));
+    struct Packet packets[2] = {{packet_bytes, sizeof(packet_bytes)},
+                                {NULL, 0}};
+    x += smb_do_test("os=EPSON", packets);
   }
 
   /*****************************************************************************
@@ -2136,11 +2155,76 @@ static int smb_selftest(void) {
         0x00, 0x83, 0xa9, 0xe2, 0x31, 0x02, 0xd4, 0x01, 0x00, 0x00, 0x08, 0x11,
         0x00, 0x77, 0x6d, 0x78, 0x8f, 0x06, 0x52, 0x8f, 0xb8, 0x53, 0x36, 0x35,
         0x39, 0x43, 0x32, 0x37, 0x44, 0x00};
-    x += smb_do_test("domain=S659C27D", packet_bytes, sizeof(packet_bytes));
+    struct Packet packets[2] = {{packet_bytes, sizeof(packet_bytes)},
+                                {NULL, 0}};
+    x += smb_do_test("domain=S659C27D", packets);
+  }
+
+  {
+    static const unsigned char packet_bytes[] = {
+        // NetBIOS
+        0x00, 0x00, 0x01, 0x00,
+        // SMB2 header
+        0xfe, 0x53, 0x4d, 0x42, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x05, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        // Negotiate Protocol Response
+        0x41, 0x00, 0x03, 0x00, 0xff, 0x02, 0x00, 0x00, 0xd9, 0xb5, 0x98, 0xa3,
+        0x09, 0x53, 0x51, 0x21, 0x93, 0x8f, 0x0f, 0x97, 0x23, 0x5e, 0x6a, 0x8c,
+        0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x40, 0x00,
+        0x00, 0x00, 0x40, 0x00, 0x4c, 0x44, 0xed, 0x04, 0x00, 0x2b, 0xd8, 0x01,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x80, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        // Security Blob
+        0x60, 0x7e, 0x06, 0x06, 0x2b, 0x06, 0x01, 0x05, 0x05, 0x02, 0xa0, 0x74,
+        0x30, 0x72, 0xa0, 0x44, 0x30, 0x42, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x82,
+        0xf7, 0x12, 0x01, 0x02, 0x02, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7,
+        0x12, 0x01, 0x02, 0x02, 0x06, 0x06, 0x2a, 0x85, 0x70, 0x2b, 0x0e, 0x03,
+        0x06, 0x06, 0x2b, 0x06, 0x01, 0x05, 0x05, 0x0e, 0x06, 0x0a, 0x2b, 0x06,
+        0x01, 0x04, 0x01, 0x82, 0x37, 0x02, 0x02, 0x0a, 0x06, 0x06, 0x2b, 0x05,
+        0x01, 0x05, 0x02, 0x07, 0x06, 0x06, 0x2b, 0x06, 0x01, 0x05, 0x02, 0x05,
+        0xa3, 0x2a, 0x30, 0x28, 0xa0, 0x26, 0x1b, 0x24, 0x6e, 0x6f, 0x74, 0x5f,
+        0x64, 0x65, 0x66, 0x69, 0x6e, 0x65, 0x64, 0x5f, 0x69, 0x6e, 0x5f, 0x52,
+        0x46, 0x43, 0x34, 0x31, 0x37, 0x38, 0x40, 0x70, 0x6c, 0x65, 0x61, 0x73,
+        0x65, 0x5f, 0x69, 0x67, 0x6e, 0x6f, 0x72, 0x65,
+        // NetBIOS
+        0x00, 0x00, 0x01, 0x00,
+        // SMB2 header
+        0xfe, 0x53, 0x4d, 0x42, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xfe, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        // Negotiate Protocol Response
+        0x41, 0x00, 0x03, 0x00, 0x02, 0x03, 0x00, 0x00, 0xd9, 0xb5, 0x98, 0xa3,
+        0x09, 0x53, 0x51, 0x21, 0x93, 0x8f, 0x0f, 0x97, 0x23, 0x5e, 0x6a, 0x8c,
+        0x66, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x40, 0x00,
+        0x00, 0x00, 0x40, 0x00, 0x4c, 0x44, 0xed, 0x04, 0x00, 0x2b, 0xd8, 0x01,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x00, 0x80, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        // Security Blob
+        0x60, 0x7e, 0x06, 0x06, 0x2b, 0x06, 0x01, 0x05, 0x05, 0x02, 0xa0, 0x74,
+        0x30, 0x72, 0xa0, 0x44, 0x30, 0x42, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x82,
+        0xf7, 0x12, 0x01, 0x02, 0x02, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7,
+        0x12, 0x01, 0x02, 0x02, 0x06, 0x06, 0x2a, 0x85, 0x70, 0x2b, 0x0e, 0x03,
+        0x06, 0x06, 0x2b, 0x06, 0x01, 0x05, 0x05, 0x0e, 0x06, 0x0a, 0x2b, 0x06,
+        0x01, 0x04, 0x01, 0x82, 0x37, 0x02, 0x02, 0x0a, 0x06, 0x06, 0x2b, 0x05,
+        0x01, 0x05, 0x02, 0x07, 0x06, 0x06, 0x2b, 0x06, 0x01, 0x05, 0x02, 0x05,
+        0xa3, 0x2a, 0x30, 0x28, 0xa0, 0x26, 0x1b, 0x24, 0x6e, 0x6f, 0x74, 0x5f,
+        0x64, 0x65, 0x66, 0x69, 0x6e, 0x65, 0x64, 0x5f, 0x69, 0x6e, 0x5f, 0x52,
+        0x46, 0x43, 0x34, 0x31, 0x37, 0x38, 0x40, 0x70, 0x6c, 0x65, 0x61, 0x73,
+        0x65, 0x5f, 0x69, 0x67, 0x6e, 0x6f, 0x72, 0x65};
+    struct Packet packets[2] = {{packet_bytes, sizeof(packet_bytes)},
+                                {NULL, 0}};
+    x += smb_do_test("MS KRB5", packets);
   }
 
   if (x) {
-    LOG(LEVEL_ERROR, "smb parser failure: google.com\n");
+    LOG(LEVEL_ERROR, "smb parser failure\n");
     return 1;
   }
 

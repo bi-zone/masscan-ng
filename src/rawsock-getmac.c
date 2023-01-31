@@ -126,14 +126,15 @@ again:
   }
 
   if (pAdapter) {
-    if (pAdapter->AddressLength != 6 || pAdapter->Address == NULL) {
+    if (pAdapter->AddressLength != 6) {
       return EFAULT;
     }
     memcpy(mac, pAdapter->Address, 6);
   }
 
-  if (pAdapterInfo)
+  if (pAdapterInfo) {
     free(pAdapterInfo);
+  }
 
   return 0;
 }

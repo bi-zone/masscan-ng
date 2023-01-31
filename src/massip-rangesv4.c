@@ -110,8 +110,8 @@ static void range_combine(struct Range *lhs, struct Range rhs) {
  * Callback for qsort() for comparing two ranges
  ***************************************************************************/
 static int range_compare(const void *lhs, const void *rhs) {
-  struct Range *left = (struct Range *)lhs;
-  struct Range *right = (struct Range *)rhs;
+  const struct Range *left = (const struct Range *)lhs;
+  const struct Range *right = (const struct Range *)rhs;
 
   if (left->begin < right->begin)
     return -1;
@@ -688,7 +688,7 @@ static unsigned rangelist_pick_linearsearch(const struct RangeList *targets,
 
 /***************************************************************************
  ***************************************************************************/
-unsigned rangelist_pick(const struct RangeList *targets, uint64_t index) {
+unsigned rangelist_pick(struct RangeList *targets, uint64_t index) {
   size_t maxmax = targets->count;
   size_t min = 0;
   size_t max = targets->count;
@@ -832,7 +832,9 @@ static int regress_pick2() {
 const char *rangelist_parse_ports(struct RangeList *ports, const char *string,
                                   unsigned *is_error, unsigned proto_offset) {
 
-  char *p = (char *)string;
+  const char *p = string;
+  char *p_tmp = NULL;
+
   unsigned tmp = 0;
 
   if (is_error == NULL)
@@ -844,12 +846,14 @@ const char *rangelist_parse_ports(struct RangeList *ports, const char *string,
     unsigned end;
 
     /* skip whitespace */
-    while (*p && isspace(*p & 0xFF))
+    while (*p && isspace(*p & 0xFF)) {
       p++;
+    }
 
     /* end at comment */
-    if (*p == 0 || *p == '#')
+    if (*p == 0 || *p == '#') {
       break;
+    }
 
     /* special processing. Nmap allows ports to be prefixed with a
      * characters to clarify TCP, UDP, or SCTP */
@@ -883,31 +887,30 @@ const char *rangelist_parse_ports(struct RangeList *ports, const char *string,
       p += 2;
     }
 
-    /*
-     * Get the start of the range.
-     */
-    if (p[0] == '-') {
+    /* Get the start of the range. */
+    if (*p == '-') {
       /* nmap style port range spec meaning starting with 0 */
       port = 1;
     } else if (isdigit(p[0] & 0xFF)) {
-      port = (unsigned)strtoul(p, &p, 0);
+      port = (unsigned)strtoul(p, &p_tmp, 0);
+      p = p_tmp;
     } else {
       break;
     }
 
-    /*
-     * Get the end of the range
-     */
+    /*  Get the end of the range */
     if (*p == '-') {
       p++;
       if (!isdigit((int)(*p))) {
         /* nmap style range spec meaning end with 65535 */
         end = (proto_offset == Templ_Oproto) ? 0xFF : 0xFFFF;
       } else {
-        end = (unsigned)strtoul(p, &p, 0);
+        end = (unsigned)strtoul(p, &p_tmp, 0);
+        p = p_tmp;
       }
-    } else
+    } else {
       end = port;
+    }
 
     /* Check for out-of-range */
     if (port > 0xFF && proto_offset == Templ_Oproto) {
@@ -922,12 +925,14 @@ const char *rangelist_parse_ports(struct RangeList *ports, const char *string,
     rangelist_add_range(ports, port + proto_offset, end + proto_offset);
 
     /* skip trailing whitespace */
-    while (*p && isspace(*p & 0xFF))
+    while (*p && isspace(*p & 0xFF)) {
       p++;
+    }
 
     /* Now get the next port/range if there is one */
-    if (*p != ',')
+    if (*p != ',') {
       break;
+    }
     p++;
   }
 

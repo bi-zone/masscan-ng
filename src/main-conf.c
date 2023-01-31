@@ -212,8 +212,9 @@ static unsigned count_cidr_bits(struct Range range) {
     unsigned mask = 0xFFFFFFFF >> i;
 
     if ((range.begin & ~mask) == (range.end & ~mask)) {
-      if ((range.begin & mask) == 0 && (range.end & mask) == mask)
+      if ((range.begin & mask) == 0 && (range.end & mask) == mask) {
         return i;
+      }
     }
   }
 
@@ -223,18 +224,31 @@ static unsigned count_cidr_bits(struct Range range) {
 /***************************************************************************
  ***************************************************************************/
 static unsigned count_cidr6_bits(const struct Range6 *range) {
-  uint64_t i;
+  unsigned i;
 
-  /* Kludge: can't handle more than 64-bits of CIDR ranges */
-  if (range->begin.hi != range->begin.lo)
+  // https://github.com/robertdavidgraham/masscan/pull/691
+  /* the easy case: hi part of addresses are the same */
+  if (range->begin.hi == range->end.hi) {
+    for (i = 0; i < 64; i++) {
+      uint64_t mask = 0xFFFFFFFFffffffffull >> (uint64_t)i;
+
+      if ((range->begin.lo & ~mask) == (range->end.lo & ~mask)) {
+        if ((range->begin.lo & mask) == 0 && (range->end.lo & mask) == mask)
+          return 64 + i;
+      }
+    }
     return 0;
+  }
 
+  /* the tricky case: hi parts differ */
   for (i = 0; i < 64; i++) {
-    uint64_t mask = 0xFFFFFFFFffffffffull >> i;
+    uint64_t mask = 0xFFFFFFFFffffffffull >> (uint64_t)i;
 
-    if ((range->begin.lo & ~mask) == (range->end.lo & ~mask)) {
-      if ((range->begin.lo & mask) == 0 && (range->end.lo & mask) == mask)
-        return (unsigned)i;
+    if ((range->begin.hi & ~mask) == (range->end.hi & ~mask)) {
+      if ((range->begin.hi & mask) == 0 && range->begin.lo == 0 &&
+          (range->end.hi & mask) == mask &&
+          range->end.lo == 0xFFFFFFFFffffffffull)
+        return i;
     }
   }
 
@@ -257,7 +271,6 @@ void masscan_save_state(struct Masscan *masscan) {
   if (err || fp == NULL) {
     LOG(LEVEL_ERROR, "%s: %s\n", filename, strerror(errno));
     exit(1);
-    return;
   }
 
   masscan_echo(masscan, fp, 0);
@@ -439,22 +452,19 @@ static unsigned parseBoolean(const char *str) {
   switch (str[0]) {
   case 't':
   case 'T':
+  case 'Y':
+  case 'y':
     return 1;
-  case 'f':
-  case 'F':
-    return 0;
   case 'o':
   case 'O':
     if (str[1] == 'f' || str[1] == 'F')
       return 0;
     else
       return 1;
-    break;
-  case 'Y':
-  case 'y':
-    return 1;
   case 'n':
   case 'N':
+  case 'f':
+  case 'F':
     return 0;
   }
   return 1;
@@ -5102,9 +5112,7 @@ void masscan_load_database_files(struct Masscan *masscan) {
                        masscan->payloads.oproto);
   }
 
-  /*
-   * "nmap-payloads"
-   */
+  /* "nmap-payloads" */
   filename = masscan->payloads.nmap_payloads_filename;
   if (filename) {
     FILE *fp;
@@ -5114,8 +5122,9 @@ void masscan_load_database_files(struct Masscan *masscan) {
     if (err || fp == NULL) {
       LOG(LEVEL_WARNING, "%s: %s\n", filename, strerror(errno));
     } else {
-      if (masscan->payloads.udp == NULL)
+      if (masscan->payloads.udp == NULL) {
         masscan->payloads.udp = payloads_udp_create();
+      }
 
       payloads_udp_readfile(fp, filename, masscan->payloads.udp);
 
@@ -5123,9 +5132,7 @@ void masscan_load_database_files(struct Masscan *masscan) {
     }
   }
 
-  /*
-   * "nmap-service-probes"
-   */
+  /* "nmap-service-probes" */
   filename = masscan->payloads.nmap_service_probes_filename;
   if (filename) {
     if (masscan->payloads.probes)
@@ -5308,7 +5315,6 @@ void masscan_command_line(struct Masscan *masscan, int argc, char *argv[]) {
           masscan->output.format = Output_All;
           LOG(LEVEL_ERROR, "nmap(%s): unsupported output format\n", argv[i]);
           exit(1);
-          break;
         case 'B':
           masscan->output.format = Output_Binary;
           break;
@@ -5322,7 +5328,6 @@ void masscan_command_line(struct Masscan *masscan, int argc, char *argv[]) {
           masscan->output.format = Output_Nmap;
           LOG(LEVEL_ERROR, "nmap(%s): unsupported output format\n", argv[i]);
           exit(1);
-          break;
         case 'X':
           masscan->output.format = Output_XML;
           break;
@@ -5335,7 +5340,6 @@ void masscan_command_line(struct Masscan *masscan, int argc, char *argv[]) {
           masscan->output.format = Output_ScriptKiddie;
           LOG(LEVEL_ERROR, "nmap(%s): unsupported output format\n", argv[i]);
           exit(1);
-          break;
         case 'G':
           masscan->output.format = Output_Grepable;
           break;
@@ -5365,7 +5369,6 @@ void masscan_command_line(struct Masscan *masscan, int argc, char *argv[]) {
         LOG(LEVEL_ERROR, "nmap(%s): unsupported, OS detection is too complex\n",
             argv[i]);
         exit(1);
-        break;
       case 'p':
         if (argv[i][2])
           arg = argv[i] + 2;
@@ -5394,14 +5397,12 @@ void masscan_command_line(struct Masscan *masscan, int argc, char *argv[]) {
             "prease\n",
             argv[i]);
         exit(1);
-        break;
       case 'R':
         /* This looks like an nmap option*/
         LOG(LEVEL_ERROR,
             "nmap(%s): unsupported. This code will never do DNS lookups.\n",
             argv[i]);
         exit(1);
-        break;
       case 's': /* NMAP: scan type */
         if (argv[i][3] == '\0' && !isdigit(argv[i][2] & 0xFF)) {
           size_t j;
@@ -5505,7 +5506,6 @@ void masscan_command_line(struct Masscan *masscan, int argc, char *argv[]) {
             "nmap(%s): unsupported, we do timing WAY different than nmap\n",
             argv[i]);
         exit(1);
-        return;
       default:
         LOG(LEVEL_ERROR, "FAIL: unknown option: -%s\n", argv[i]);
         LOG(LEVEL_ERROR, " [hint] try \"--help\"\n");
@@ -5744,6 +5744,7 @@ int mainconf_selftest() {
   char test3[] = " test 3 ";
   char test4[] = " ";
   char test5[] = "";
+  char test6[] = "\0\0\0\0";
 
   trim(test1, sizeof(test1));
   if (strcmp(test1, "test 1") != 0) {
@@ -5765,19 +5766,53 @@ int mainconf_selftest() {
   if (strcmp(test5, "") != 0) {
     return 1; /* failure */
   }
+  trim(test6, sizeof(test6));
+  if (strcmp(test6, "") != 0) {
+    return 1; /* failure */
+  }
 
   {
     struct Range range;
 
     range.begin = 16;
     range.end = 32 - 1;
-    if (count_cidr_bits(range) != 28)
+    if (count_cidr_bits(range) != 28) {
       return 1;
+    }
 
     range.begin = 1;
     range.end = 13;
-    if (count_cidr_bits(range) != 0)
+    if (count_cidr_bits(range) != 0) {
       return 1;
+    }
+  }
+
+  {
+    struct Range6 range;
+
+    range.begin.hi = 0x20010db800000000;
+    range.begin.lo = 0x0000000000000000;
+    range.end.hi = 0x20010db800000000;
+    range.end.lo = 0x000003ffffffffff;
+    if (count_cidr6_bits(&range) != 86) {
+      return 1;
+    }
+
+    range.begin.hi = 0x20010db800000000;
+    range.begin.lo = 0x0000000000000000;
+    range.end.hi = 0x20010db80007ffff;
+    range.end.lo = 0xffffffffffffffff;
+    if (count_cidr6_bits(&range) != 45) {
+      return 1;
+    }
+
+    range.begin.hi = 0x20010db800000000;
+    range.begin.lo = 0x0000000000000001;
+    range.end.hi = 0x20010db80007ffff;
+    range.end.lo = 0xffffffffffffffff;
+    if (count_cidr6_bits(&range) != 0) {
+      return 1;
+    }
   }
 
   /* */

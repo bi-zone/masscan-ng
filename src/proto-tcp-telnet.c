@@ -318,7 +318,8 @@ static int telnet_selftest_item(const char *input, const char *output) {
   struct KeyOutput *keyout = NULL;
   struct ResendPayload resend_payload[1];
   struct InteractiveData more = {0};
-  int x;
+  int x = 0;
+  bool check;
 
   /* Initiate a pseudo-environment for the parser */
   banner1 = banner1_create();
@@ -339,9 +340,10 @@ static int telnet_selftest_item(const char *input, const char *output) {
   // PROTO_TELNET), banout_string(banout1, PROTO_TELNET));
   /* Verify that somewhere in the output is the string
    * we are looking for */
-  x = banout_is_contains(banout1, PROTO_TELNET, output);
-  if (x == 0) {
+  check = banout_is_contains(banout1, PROTO_TELNET, output);
+  if (!check) {
     LOG(LEVEL_ERROR, "telnet parser failure: %s\n", output);
+    x += 1;
   }
   cleanup_application_proto(banner1, pstate, resend_payload);
   banner1_destroy(banner1);
@@ -349,7 +351,7 @@ static int telnet_selftest_item(const char *input, const char *output) {
   signout_release(signout);
   banout_release(banout1);
 
-  return (x == 0) ? 1 : 0;
+  return x;
 }
 
 /***************************************************************************
@@ -392,7 +394,7 @@ static int telnet_selftest(void) {
 
 /***************************************************************************
  ***************************************************************************/
-const struct ProtocolParserStream banner_telnet = {
+struct ProtocolParserStream banner_telnet = {
     "telnet",    PROTO_TELNET,   false, "\xff\xf6",   2, 0, telnet_selftest,
     telnet_init, telnet_cleanup, NULL,  telnet_parse,
 };

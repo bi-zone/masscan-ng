@@ -41,8 +41,8 @@ struct PreprocessedInfo {
   unsigned ip_protocol; /* 6 for TCP, 11 for UDP */
   size_t ip_length;     /* length of total packet */
   unsigned ip_ttl;
-  const unsigned char *_ip_src;
-  const unsigned char *_ip_dst;
+  unsigned char *_ip_src;
+  unsigned char *_ip_dst;
   ipaddress src_ip;
   ipaddress dst_ip;
   size_t transport_offset; /* 34 for normal Ethernet */
@@ -61,7 +61,7 @@ struct PreprocessedInfo {
 };
 
 /* @return 1 if useful stuff found, 0 otherwise */
-unsigned preprocess_frame(const unsigned char *px, size_t length,
-                          unsigned link_type, struct PreprocessedInfo *info);
+unsigned preprocess_frame(unsigned char *px, size_t length, unsigned link_type,
+                          struct PreprocessedInfo *info);
 
 #endif

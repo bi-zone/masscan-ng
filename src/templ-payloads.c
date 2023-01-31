@@ -9,7 +9,11 @@
     UDP port.
 
  */
-#include "templ-payloads.h"
+#include <ctype.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 #include "logger.h"
 #include "massip-port.h"
 #include "massip.h"
@@ -21,12 +25,9 @@
 #include "proto-snmp.h"
 #include "proto-zeroaccess.h" /* botnet p2p protocol */
 #include "rawsock-pcapfile.h" /* for reading payloads from pcap files */
+#include "templ-payloads.h"
+#include "util-cross.h"
 #include "util-malloc.h"
-
-#include <ctype.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 struct PayloadUDP_Item {
   unsigned port;
@@ -158,10 +159,10 @@ struct PayloadUDP_Default hard_coded_udp_payloads[] = {
      "\x00\x00\x00\x00\x00\x01\x00\x00stats\r\n"},
 
     // 16464,16465,16470, 16471
-    {16464, 65536, zeroaccess_getL_length, 0, 0, (char *)zeroaccess_getL},
-    {16465, 65536, zeroaccess_getL_length, 0, 0, (char *)zeroaccess_getL},
-    {16470, 65536, zeroaccess_getL_length, 0, 0, (char *)zeroaccess_getL},
-    {16471, 65536, zeroaccess_getL_length, 0, 0, (char *)zeroaccess_getL},
+    {16464, 65536, zeroaccess_getL_length, 0, 0, zeroaccess_getL},
+    {16465, 65536, zeroaccess_getL_length, 0, 0, zeroaccess_getL},
+    {16470, 65536, zeroaccess_getL_length, 0, 0, zeroaccess_getL},
+    {16471, 65536, zeroaccess_getL_length, 0, 0, zeroaccess_getL},
 
     /* Quake 3 (amplifier)
      * http://blog.alejandronolla.com/2013/06/24/amplification-ddos-attack-with-quake3-servers-an-analysis-1-slash-2/
@@ -196,14 +197,15 @@ static unsigned partial_checksum(const unsigned char *px, size_t icmp_length) {
 /***************************************************************************
  * If we have the port, return the payload
  ***************************************************************************/
-int payloads_udp_lookup(const struct PayloadsUDP *payloads, unsigned port,
-                        const unsigned char **px, size_t *length,
-                        unsigned *source_port, uint64_t *xsum,
-                        SET_COOKIE *set_cookie) {
+bool payloads_udp_lookup(const struct PayloadsUDP *payloads, unsigned port,
+                         const unsigned char **px, size_t *length,
+                         unsigned *source_port, uint64_t *xsum,
+                         SET_COOKIE *set_cookie) {
 
   size_t i;
-  if (payloads == 0)
-    return 0;
+  if (payloads == NULL) {
+    return false;
+  }
 
   port &= 0xFFFF;
 
@@ -211,13 +213,17 @@ int payloads_udp_lookup(const struct PayloadsUDP *payloads, unsigned port,
     if (payloads->list[i]->port == port) {
       *px = payloads->list[i]->buf;
       *length = payloads->list[i]->length;
-      *source_port = payloads->list[i]->source_port;
-      *xsum = payloads->list[i]->xsum;
+      if (xsum != NULL) {
+        *source_port = payloads->list[i]->source_port;
+      }
+      if (xsum != NULL) {
+        *xsum = payloads->list[i]->xsum;
+      }
       *set_cookie = payloads->list[i]->set_cookie;
-      return 1;
+      return true;
     }
   }
-  return 0;
+  return false;
 }
 
 /***************************************************************************
@@ -312,7 +318,7 @@ static void trim(char *line, size_t sizeof_line) {
     sizeof_line--;
   }
 
-  while (isspace(line[sizeof_line - 1] & 0xFF)) {
+  while (sizeof_line != 0 && (isspace(line[sizeof_line - 1] & 0xFF))) {
     line[--sizeof_line] = '\0';
   }
 }
@@ -381,7 +387,6 @@ static const char *parse_c_string(unsigned char *buf, size_t *buf_length,
       case '8':
       case '9': {
         unsigned val = 0;
-
         if (isodigit(line[offset]))
           val = val * 8 + hexval(line[offset++]);
         if (isodigit(line[offset]))
@@ -389,22 +394,19 @@ static const char *parse_c_string(unsigned char *buf, size_t *buf_length,
         if (isodigit(line[offset]))
           val = val * 8 + hexval(line[offset++]);
         append_byte(buf, buf_length, buf_max, val);
+      }
         continue;
-      } break;
       case 'x':
         offset++;
         {
           unsigned val = 0;
-
           if (isxdigit((int)line[offset]))
             val = val * 16 + hexval(line[offset++]);
           if (isxdigit((int)line[offset]))
             val = val * 16 + hexval(line[offset++]);
           append_byte(buf, buf_length, buf_max, val);
-          continue;
         }
-        break;
-
+        continue;
       case 'a':
         append_byte(buf, buf_length, buf_max, '\a');
         break;
@@ -447,6 +449,7 @@ static const char *parse_c_string(unsigned char *buf, size_t *buf_length,
  ***************************************************************************/
 static char *get_next_line(FILE *fp, unsigned *line_number, char *line,
                            size_t sizeof_line) {
+
   if (line[0] != '\0')
     return line;
 
@@ -480,9 +483,9 @@ static unsigned payloads_datagram_add(struct PayloadsUDP *payloads,
                                       unsigned source_port,
                                       SET_COOKIE set_cookie) {
 
-  unsigned count = 1;
   struct PayloadUDP_Item *p;
   uint64_t port_count = rangelist_count(ports);
+  unsigned count = 0;
   uint64_t i;
 
   for (i = 0; i < port_count; i++) {
@@ -506,25 +509,32 @@ static unsigned payloads_datagram_add(struct PayloadsUDP *payloads,
     /* insert in sorted order */
     {
       size_t j;
+      bool is_add = true;
+
       for (j = 0; j < payloads->count; j++) {
-        if (p->port <= payloads->list[j]->port)
+        if (p->port <= payloads->list[j]->port) {
           break;
+        }
       }
 
       if (j < payloads->count) {
         if (p->port == payloads->list[j]->port) {
           free(payloads->list[j]);
-          count = 0; /* don't increment count */
-        } else
+          is_add = false;
+        } else {
           memmove(payloads->list + j + 1, payloads->list + j,
                   (payloads->count - j) * sizeof(payloads->list[0]));
+        }
       }
       payloads->list[j] = p;
-
-      payloads->count += (size_t)count;
+      if (is_add) {
+        count += 1;
+        payloads->count += 1;
+      }
     }
   }
-  return count; /* zero or one */
+
+  return count;
 }
 
 /***************************************************************************
@@ -637,6 +647,7 @@ void payloads_read_pcap(const char *filename, struct PayloadsUDP *payloads,
  ***************************************************************************/
 void payloads_udp_readfile(FILE *fp, const char *filename,
                            struct PayloadsUDP *payloads) {
+
   char line[16384];
   unsigned line_number = 0;
 
@@ -659,9 +670,9 @@ void payloads_udp_readfile(FILE *fp, const char *filename,
     if (memcmp(line, "udp", 3) != 0) {
       LOG(LEVEL_ERROR, "%s:%u: syntax error, expected \"udp\".\n", filename,
           line_number);
-      goto end;
+      return;
     } else {
-      memmove(line, line + 3, strlen(line + 3));
+      memmove(line, line + 3, strlen(line + 3) + 1);
     }
     trim(line, sizeof(line));
 
@@ -672,7 +683,7 @@ void payloads_udp_readfile(FILE *fp, const char *filename,
     if (is_error) {
       LOG(LEVEL_ERROR, "%s:%u: syntax error, expected ports\n", filename,
           line_number);
-      goto end;
+      return;
     }
     memmove(line, p, strlen(p) + 1);
     trim(line, sizeof(line));
@@ -692,28 +703,25 @@ void payloads_udp_readfile(FILE *fp, const char *filename,
 
     /* [source] */
     if (memcmp(line, "source", 6) == 0) {
-      memmove(line, line + 6, strlen(line + 5));
+      memmove(line, line + 6, strlen(line + 6) + 1);
       trim(line, sizeof(line));
       if (!isdigit((int)line[0])) {
         LOG(LEVEL_ERROR, "%s:%u: expected source port\n", filename,
             line_number);
-        goto end;
+        return;
       }
       source_port = (unsigned)strtoul(line, 0, 0);
       line[0] = '\0';
     }
 
-    /*
-     * Now we've completely parsed the record, so add it to our
-     * list of payloads
-     */
-    if (buf_length)
+    /* Now we've completely parsed the record, so add it to our
+     * list of payloads */
+    if (buf_length) {
       payloads_datagram_add(payloads, buf, buf_length, ports, source_port, 0);
+    }
 
     rangelist_remove_all(ports);
   }
-
-end:; // fclose(fp);
 }
 
 /***************************************************************************

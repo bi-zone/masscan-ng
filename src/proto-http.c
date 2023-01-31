@@ -333,7 +333,7 @@ size_t http_change_field(unsigned char **inout_header, size_t header_length,
   /* If we reached the end without finding proper termination, then add it */
   if (offset == header_length) {
     if (offset == 0 || hdr[offset - 1] != '\n') {
-      if (hdr[offset - 1] == '\r')
+      if (offset != 0 && hdr[offset - 1] == '\r')
         header_length =
             _http_append(&hdr, header_length, value_length + 2, "\n");
       else
@@ -374,14 +374,13 @@ size_t http_change_field(unsigned char **inout_header, size_t header_length,
 
 /***************************************************************************
  ***************************************************************************/
-static const char http_hello[] =
-    "GET / HTTP/1.0\r\n"
-    "User-Agent: " MASSCAN_NAME "/" MASSCAN_VERSION_SHORT " (" MASSCAN_REPO_LINK
-    ")\r\n"
-    "Accept: */*\r\n"
-    //"Connection: Keep-Alive\r\n"
-    //"Content-Length: 0\r\n"
-    "\r\n";
+static char http_hello[] = "GET / HTTP/1.0\r\n"
+                           "User-Agent: " MASSCAN_NAME "/" MASSCAN_VERSION_SHORT
+                           " (" MASSCAN_REPO_LINK ")\r\n"
+                           "Accept: */*\r\n"
+                           //"Connection: Keep-Alive\r\n"
+                           //"Content-Length: 0\r\n"
+                           "\r\n";
 
 /*****************************************************************************
  *****************************************************************************/

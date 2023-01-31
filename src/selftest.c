@@ -41,6 +41,7 @@ void benchmark(const struct Masscan *masscan) {
 int selftest(const struct Masscan *masscan) {
 
   int x = 0;
+
   x += dedup_selftest();
   x += checksum_selftest();
   x += ipv6address_selftest();
@@ -57,6 +58,7 @@ int selftest(const struct Masscan *masscan) {
   x += siphash24_selftest();
   x += ntp_selftest();
   x += snmp_selftest();
+  x += spnego_selftest();
   x += payloads_udp_selftest();
   x += blackrock_selftest();
   x += rawsock_selftest();

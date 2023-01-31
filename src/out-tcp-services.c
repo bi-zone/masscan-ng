@@ -24,7 +24,7 @@ static unsigned short my_htons(unsigned port) {
 #pragma GCC diagnostic ignored "-Wstrict-aliasing"
 #endif
 
-  if (*(unsigned short *)test == 0x1122)
+  if (*(const unsigned short *)test == 0x1122)
     return (unsigned short)(0xFFFF & port);
   else
     return (unsigned short)((port >> 8) & 0xFF) | ((port & 0xFF) << 8);
@@ -44,7 +44,7 @@ const char *tcp_service_name(int port) {
 #if defined(__linux__) && !defined(__TERMUX__)
   int r;
   struct servent result_buf;
-  struct servent *result;
+  struct servent *result = NULL;
   char buf[2048];
 
   r = getservbyport_r(my_htons(port), "tcp", &result_buf, buf, sizeof(buf),
@@ -75,7 +75,7 @@ const char *udp_service_name(int port) {
 #if defined(__linux__) && !defined(__TERMUX__)
   int r;
   struct servent result_buf;
-  struct servent *result;
+  struct servent *result = NULL;
   char buf[2048];
 
   r = getservbyport_r(my_htons(port), "udp", &result_buf, buf, sizeof(buf),

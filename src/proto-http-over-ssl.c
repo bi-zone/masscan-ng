@@ -651,7 +651,7 @@ static void ssl_transmit_cleanup(const struct Banner1 *banner1,
     if ((resend_payload->data >= pstate->sub.ssl_dynamic.data) &&
         (resend_payload->data < (pstate->sub.ssl_dynamic.data +
                                  pstate->sub.ssl_dynamic.data_max_len))) {
-      const unsigned char *newdata = malloc(resend_payload->data_length);
+      unsigned char *newdata = malloc(resend_payload->data_length);
       if (newdata == NULL) {
         LOG(LEVEL_WARNING, "Out of memory\n");
         resend_payload->data = NULL;
@@ -924,7 +924,7 @@ static int check_test_case_3(struct BannerOutput *banout,
 
   STACK_OF(X509) * sk_x509_certs;
   int count_x509_certs;
-  unsigned res;
+  bool res;
 
   if (state->parser_stream == &banner_http_over_ssl) {
     ssl_version = SSL_version(state->sub.ssl_dynamic.ssl);

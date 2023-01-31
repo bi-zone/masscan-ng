@@ -109,7 +109,7 @@ typedef pcap_t *(*PCAP_OPEN_OFFLINE)(const char *fname, char *errbuf);
 typedef int (*PCAP_SENDPACKET)(pcap_t *p, const unsigned char *buf, int size);
 typedef const unsigned char *(*PCAP_NEXT)(pcap_t *p, struct pcap_pkthdr *h);
 typedef int (*PCAP_NEXT_EX)(pcap_t *p, struct pcap_pkthdr **h,
-                            const unsigned char **pkt_data);
+                            unsigned char **pkt_data);
 typedef int (*PCAP_SETDIRECTION)(pcap_t *, pcap_direction_t);
 typedef const char *(*PCAP_DATALINK_VAL_TO_NAME)(int dlt);
 typedef void (*PCAP_PERROR)(pcap_t *p, char *prefix);

@@ -3,7 +3,7 @@
 #define TLS_FALLBACK_SCSV 0x5600
 #define inappropriate_fallback 86
 
-static const char sslv3_hello[] =
+static char sslv3_hello[] =
     "\x16\x03\x00\x00\x43"
     "\x01\x00\x00\x3f\x03\x00"
     "\x00\x07\x06\x30" /* gmtime */
@@ -16,4 +16,4 @@ static const char sslv3_hello[] =
     "\x00\x38\x00\x35\x00\x33\x00\x32\x00\x04\x00\x05\x00\x2f\x00\x16"
     "\x00\x13\xfe\xff\x00\x0a\x01\x00";
 
-const char *ssl_hello_sslv3_template = sslv3_hello;
+char *ssl_hello_sslv3_template = sslv3_hello;

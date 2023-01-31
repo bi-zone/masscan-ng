@@ -50,6 +50,7 @@
     <ClCompile Include="..\src\pixie-backtrace.c" />
     <ClCompile Include="..\src\pixie-file.c" />
     <ClCompile Include="..\src\proto-arp.c" />
+    <ClCompile Include="..\src\proto-asn1.c" />
     <ClCompile Include="..\src\proto-banner1.c" />
     <ClCompile Include="..\src\proto-banout.c" />
     <ClCompile Include="..\src\proto-coap.c" />
@@ -71,6 +72,7 @@
     <ClCompile Include="..\src\proto-smb.c" />
     <ClCompile Include="..\src\proto-smtp.c" />
     <ClCompile Include="..\src\proto-snmp.c" />
+    <ClCompile Include="..\src\proto-spnego.c" />
     <ClCompile Include="..\src\proto-ssh.c" />
     <ClCompile Include="..\src\proto-ssl-test.c" />
     <ClCompile Include="..\src\proto-http-over-ssl.c" />
@@ -173,6 +175,7 @@
     <ClInclude Include="..\src\pixie-threads.h" />
     <ClInclude Include="..\src\pixie-timer.h" />
     <ClInclude Include="..\src\proto-arp.h" />
+    <ClInclude Include="..\src\proto-asn1.h" />
     <ClInclude Include="..\src\proto-banner1.h" />
     <ClInclude Include="..\src\proto-banout.h" />
     <ClInclude Include="..\src\proto-keyout.h" />
@@ -196,6 +199,7 @@
     <ClInclude Include="..\src\proto-smb.h" />
     <ClInclude Include="..\src\proto-smtp.h" />
     <ClInclude Include="..\src\proto-snmp.h" />
+    <ClInclude Include="..\src\proto-spnego.h" />
     <ClInclude Include="..\src\proto-ssh.h" />
     <ClInclude Include="..\src\proto-http-over-ssl.h" />
     <ClInclude Include="..\src\proto-ssl.h" />

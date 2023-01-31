@@ -2,6 +2,6 @@
 #define PROTO_TELNET_H
 #include "proto-banner1.h"
 
-extern const struct ProtocolParserStream banner_telnet;
+extern struct ProtocolParserStream banner_telnet;
 
 #endif

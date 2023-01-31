@@ -4,9 +4,9 @@
 
 extern struct ProtocolParserStream banner_ssl;
 
-extern const char *ssl_hello_heartbeat_template;
-extern const char *ssl_hello_ticketbleed_template;
-extern const char *ssl_hello_sslv3_template;
+extern char *ssl_hello_heartbeat_template;
+extern char *ssl_hello_ticketbleed_template;
+extern char *ssl_hello_sslv3_template;
 
 /**
  * Parse the SSL Hello template to find its size

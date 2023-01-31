@@ -69,7 +69,7 @@ int masscan_initialize_adapter(struct Masscan *masscan, size_t index,
       ifname, masscan->is_pfring, masscan->is_sendq, masscan->nmap.packet_trace,
       masscan->is_offline, (void *)masscan->bpf_filter,
       masscan->nic[index].is_vlan, masscan->nic[index].vlan_id);
-  if (masscan->nic[index].adapter == 0) {
+  if (masscan->nic[index].adapter == NULL) {
     LOG(LEVEL_ERROR, "[-] if:%s:init: failed\n", ifname);
     return -1;
   }

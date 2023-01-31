@@ -4,8 +4,8 @@
 struct BannerOutput;
 
 struct NtlmsspDecode {
-  unsigned length;
-  unsigned offset;
+  size_t length;
+  size_t offset;
   unsigned char *buf;
 };
 
