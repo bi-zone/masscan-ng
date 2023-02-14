@@ -28,13 +28,9 @@ endif
 # environment where things likely will work -- as well as anything
 # works on the bajillion of different Linux environments
 ifneq (, $(findstring linux, $(SYS)))
-	ifneq (, $(findstring musl, $(SYS)))
-		LIBS = 
-	else
-		LIBS = -lm -lrt -ldl -lpthread -lpcre -lssl -lcrypto -lz -lpthread
+	ifeq (, $(findstring musl, $(SYS)))
+		LIBS += -lm -lrt -ldl -lpthread -lpcre -lssl -lcrypto -lz -lpthread
 	endif
-	INCLUDES =
-	FLAGS2 = 
 endif
 
 # MAC OS X
@@ -42,9 +38,8 @@ endif
 # my regularly regression-test environment. That means at any point
 # in time, something might be minorly broken in Mac OS X.
 ifneq (, $(findstring darwin, $(SYS)))
-	LIBS = -L/usr/local/opt/openssl/lib -lm -lssl -lcrypto -lpcre
-	INCLUDES = -I/usr/local/opt/openssl/include
-	FLAGS2 = 
+	LIBS += -L/usr/local/opt/openssl/lib -lm -lssl -lcrypto -lpcre
+	INCLUDES += -I/usr/local/opt/openssl/include
 	INSTALL_DATA = -pm755
 endif
 
@@ -55,9 +50,9 @@ endif
 # to then fix all the errors, so this kinda works now. It's not the
 # intended environment, so it make break in the future.
 ifneq (, $(findstring mingw, $(SYS)))
-	INCLUDES = -Ivs10/include
-	LIBS = -L vs10/lib -lIPHLPAPI -lWs2_32
-	FLAGS2 = -march=i686
+	INCLUDES += -Ivs10/include
+	LIBS += -L vs10/lib -lIPHLPAPI -lWs2_32
+	FLAGS2 += -march=i686
 endif
 
 # Cygwin
@@ -65,40 +60,31 @@ endif
 # second here for completeness, or in case I gate tired of hitting my
 # head with a hammer and want to feel a different sort of pain.
 ifneq (, $(findstring cygwin, $(SYS)))
-	INCLUDES =
-	LIBS = 
-	FLAGS2 = 
+
 endif
 
 # OpenBSD
 ifneq (, $(findstring openbsd, $(SYS)))
-	LIBS = -lm -lpthread -lssl -lcrypto -lpcre
-	INCLUDES =
-	FLAGS2 = 
+	LIBS += -lm -lpthread -lssl -lcrypto -lpcre 
 endif
 
 # FreeBSD
 ifneq (, $(findstring freebsd, $(SYS)))
-	LIBS = -lm -lpthread -lssl -lcrypto -lpcre
-	INCLUDES =
-	FLAGS2 =
+	LIBS += -lm -lpthread -lssl -lcrypto -lpcre
 endif
 
 # NetBSD
 ifneq (, $(findstring netbsd, $(SYS)))
-	LIBS = -lm -lpthread -lssl -lcrypto -lpcre
-	INCLUDES =
-	FLAGS2 =
+	LIBS += -lm -lpthread -lssl -lcrypto -lpcre
 endif
 
 ifeq ($(DEBUG), 1)
-    DEFINES = -DDEBUG
-	CFLAGS = -g $(FLAGS2) $(INCLUDES) $(DEFINES) -Wall -Werror -O0 -fsanitize=undefined -fsanitize=address -fsanitize-blacklist=sanitizer_ignore_list.txt
-	LDFLAGS = -fsanitize=undefined -fsanitize=address -fsanitize-blacklist=sanitizer_ignore_list.txt
+	DEFINES += -DDEBUG
+	CFLAGS += -g $(FLAGS2) $(INCLUDES) $(DEFINES) -Wall -Werror -O0 -fsanitize=undefined -fsanitize=address -fsanitize-blacklist=sanitizer_ignore_list.txt
+	LDFLAGS += -fsanitize=undefined -fsanitize=address -fsanitize-blacklist=sanitizer_ignore_list.txt
 else
-    DEFINES = -DNDEBUG
-	CFLAGS = -g $(FLAGS2) $(INCLUDES) $(DEFINES) -Wall -Werror -O2
-	LDFLAGS = 
+	DEFINES += -DNDEBUG
+	CFLAGS += -g $(FLAGS2) $(INCLUDES) $(DEFINES) -Wall -Werror -O2
 endif
 
 ifeq ($(COVERAGE), 1)
