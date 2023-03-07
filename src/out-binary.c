@@ -345,38 +345,69 @@ static void binary_out_banner(struct Output *out, time_t timestamp,
   out->rotate.bytes_written += bytes_written;
 }
 
+static void binary_out_sign_ipv6(struct Output *out, time_t timestamp,
+                                 const ipaddress *ip, unsigned ip_proto,
+                                 unsigned port,
+                                 enum ApplicationProtocol proto) {
+
+  unsigned char buf[256];
+  size_t max = sizeof(buf);
+  size_t offset = 0;
+  size_t bytes_written;
+
+  /* [TYPE] field */
+  _put_byte(buf, max, &offset, Out_Sign6);
+  /* [LENGTH] field*/
+  _put_byte(buf, max, &offset, 26);
+  /* [TIMESTAMP] field */
+  _put_integer(buf, max, &offset, timestamp);
+  _put_byte(buf, max, &offset, ip_proto);
+  _put_short(buf, max, &offset, port);
+  _put_short(buf, max, &offset, proto);
+  _put_byte(buf, max, &offset, ip->version);
+  _put_long(buf, max, &offset, ip->ipv6.hi);
+  _put_long(buf, max, &offset, ip->ipv6.lo);
+
+  assert(offset == 2 + 26);
+
+  bytes_written = fwrite(buf, 1, offset, out->fp);
+  if (bytes_written != offset) {
+    LOG(LEVEL_ERROR, "output: %s\n", strerror(errno));
+    exit(1);
+  }
+  out->rotate.bytes_written += bytes_written;
+}
+
 static void binary_out_sign(struct Output *out, time_t timestamp,
                             const ipaddress *ip, unsigned ip_proto,
                             unsigned port, enum ApplicationProtocol proto) {
 
-  unsigned char foo[15];
+  unsigned char buf[256];
+  size_t max = sizeof(buf);
+  size_t offset = 0;
   size_t bytes_written;
 
+  /* This function is for IPv6, call a different function for IPv6 */
+  if (ip->version == 6) {
+    binary_out_sign_ipv6(out, timestamp, ip, ip_proto, port, proto);
+    return;
+  }
+
   /* [TYPE] field */
-  foo[0] = Out_Sign; /*sign*/
+  _put_byte(buf, max, &offset, Out_Sign);
   /* [LENGTH] field*/
-  foo[1] = 15;
+  _put_byte(buf, max, &offset, 13);
   /* [TIMESTAMP] field */
-  foo[2] = (unsigned char)(timestamp >> 24);
-  foo[3] = (unsigned char)(timestamp >> 16);
-  foo[4] = (unsigned char)(timestamp >> 8);
-  foo[5] = (unsigned char)(timestamp >> 0);
+  _put_integer(buf, max, &offset, timestamp);
+  _put_integer(buf, max, &offset, ip->ipv4);
+  _put_byte(buf, max, &offset, ip_proto);
+  _put_short(buf, max, &offset, port);
+  _put_short(buf, max, &offset, proto);
 
-  foo[6] = (unsigned char)(ip->ipv4 >> 24);
-  foo[7] = (unsigned char)(ip->ipv4 >> 16);
-  foo[8] = (unsigned char)(ip->ipv4 >> 8);
-  foo[9] = (unsigned char)(ip->ipv4 >> 0);
+  assert(offset == 2 + 13);
 
-  foo[10] = (unsigned char)(ip_proto);
-
-  foo[11] = (unsigned char)(port >> 8);
-  foo[12] = (unsigned char)(port >> 0);
-
-  foo[13] = (unsigned char)(proto >> 8);
-  foo[14] = (unsigned char)(proto >> 0);
-
-  bytes_written = fwrite(&foo, 1, 15, out->fp);
-  if (bytes_written != 15) {
+  bytes_written = fwrite(buf, 1, 15, out->fp);
+  if (bytes_written != offset) {
     LOG(LEVEL_ERROR, "output: %s\n", strerror(errno));
     exit(1);
   }

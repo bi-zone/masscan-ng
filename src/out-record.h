@@ -14,5 +14,6 @@ enum OutputRecordType {
   Out_Arp6 = 12,
   Out_Banner6 = 13,
   Out_Sign = 14,
+  Out_Sign6 = 15,
 };
 #endif
